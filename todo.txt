@@ -1,0 +1,2 @@
+[] Update rand dependency in root bin. Currently using lower version because of secp256k1 crate interoperability
+[] Make sure all crypto is well implemented
