@@ -1,5 +1,8 @@
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+mod tests;
+
 static BASE58_CHARACTERS: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 static BASE58_MAP: [Option<u8>; 256] = [
     None,    None,    None,    None,    None,    None,    None,    None,
@@ -152,17 +155,4 @@ pub fn decode_check(data: &str) -> Result<Vec<u8>, Error> {
     }
 
     Err(Error::WrongChecksum)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use hex::{FromHex};
-
-    #[test]
-    fn decode_works() {
-        assert_eq!(decode("1").ok(), Some(vec![0u8]));
-        assert_eq!(decode("2").ok(), Some(vec![1u8]));
-        assert_eq!(decode_check("1PfJpZsjreyVrqeoAfabrRwwjQyoSQMmHH").ok(), Some(Vec::from_hex("00f8917303bfa8ef24f292e8fa1419b20460ba064d").unwrap()));
-    }
 }

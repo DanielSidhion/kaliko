@@ -6,6 +6,9 @@ pub use self::extended_key::{ExtendedKey, ExtendedPublicKey};
 
 pub mod extended_key;
 
+#[cfg(test)]
+mod tests;
+
 pub const CHILD_INDEX_SIZE: usize = 4;
 pub const FINGERPRINT_SIZE: usize = 4;
 pub const CHAIN_CODE_SIZE: usize = 32;
