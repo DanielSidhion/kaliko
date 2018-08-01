@@ -1,8 +1,11 @@
+use byteorder::{ByteOrder, BigEndian};
+use ring::{digest, pbkdf2};
 use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 mod tests;
 
+pub const BIP39_SEED_SIZE: usize = 64;
 pub const WORDLIST_SIZE: usize = 2048;
 const ENGLISH_WORDLIST: &str = include_str!("english.txt");
 
@@ -10,8 +13,11 @@ const ENGLISH_WORDLIST: &str = include_str!("english.txt");
 pub enum BIP39Error {
     InvalidEntropyLength,
     WrongChecksum,
+    InvalidWordInMnemonic,
+    InvalidMnemonicSize,
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct MnemonicSeed {
     entropy: Vec<u8>,
 }
@@ -43,8 +49,68 @@ impl MnemonicSeed {
         }
     }
 
-    pub fn from_mnemonic(mnemonic: &str) -> Result<MnemonicSeed, BIP39Error> {
-        Err(BIP39Error::WrongChecksum)
+    pub fn from_mnemonic(mnemonic: &str, wordlist: WordList) -> Result<MnemonicSeed, BIP39Error> {
+        let wordlist = wordlist.as_vec();
+
+        let mut entropy = Vec::<u8>::new();
+        let mut available_index = 0;
+        let mut curr_val = 0;
+        let mut remaining_bits = 8;
+        let mut available_bits;
+        let mut total_words = 0;
+
+        for word in mnemonic.split_whitespace() {
+            total_words += 1;
+
+            let word_index = match wordlist.binary_search(&word) {
+                Ok(i) => i,
+                Err(_) => return Err(BIP39Error::InvalidWordInMnemonic),
+            };
+
+            available_index = word_index as u16;
+            available_bits = 11;
+
+            while available_bits != 0 {
+                if available_bits >= remaining_bits {
+                    let mask = ((!0u8 >> (8 - remaining_bits)) as u16) << (available_bits - remaining_bits);
+                    let val = (available_index & mask) >> (available_bits - remaining_bits);
+                    available_index &= !mask;
+                    curr_val |= val as u8;
+                    entropy.push(curr_val);
+                    curr_val = 0;
+                    available_bits -= remaining_bits;
+                    remaining_bits = 8;
+                } else {
+                    curr_val |= (available_index << (8 - available_bits)) as u8;
+                    remaining_bits -= available_bits;
+                    available_bits = 0;
+                }
+            }
+        }
+
+        match total_words {
+            12 | 15 | 18 | 21 => {},
+            // 24 words uses 8 bits as checksum. Our algorithm above would have put that as a u8 inside `entropy`, so we need to take it back.
+            24 => {
+                available_index = entropy.pop().unwrap() as u16;
+            },
+            _ => {
+                return Err(BIP39Error::InvalidMnemonicSize);
+            }
+        }
+
+        let checksum = Sha256::digest(entropy.as_slice());
+        
+        let checksum_bits = total_words / 3;
+        let checksum_val = (checksum[0] >> (8 - checksum_bits)) as u16;
+
+        if checksum_val != available_index {
+            return Err(BIP39Error::WrongChecksum);
+        }
+
+        Ok(MnemonicSeed {
+            entropy,
+        })
     }
 
     pub fn as_words(&self, wordlist: WordList) -> String {
@@ -96,6 +162,16 @@ impl MnemonicSeed {
                 }
             }
         }
+
+        result
+    }
+
+    pub fn as_seed(&self, passphrase: &str) -> [u8; BIP39_SEED_SIZE] {
+        let mut result = [0u8; BIP39_SEED_SIZE];
+
+        let mnemonic_phrase = self.as_words(WordList::English);
+        let salt = format!("mnemonic{}", passphrase);
+        pbkdf2::derive(&digest::SHA512, 2048, &salt.as_bytes(), &mnemonic_phrase.as_bytes(), &mut result);
 
         result
     }

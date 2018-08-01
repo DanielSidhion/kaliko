@@ -1,23 +1,7 @@
-extern crate byteorder;
 extern crate chalice;
-extern crate hex;
-extern crate hmac;
-extern crate rand;
-extern crate secp256k1;
-extern crate sha2;
 
-use chalice::base58;
-use chalice::bip32;
-use byteorder::{BigEndian, ByteOrder};
-use hex::{FromHex};
-use hmac::{Hmac, Mac};
-use secp256k1::constants::SECRET_KEY_SIZE;
-use secp256k1::constants::MESSAGE_SIZE;
-use secp256k1::Message;
-use secp256k1::PublicKey;
-use secp256k1::Secp256k1;
-use secp256k1::SecretKey;
-use sha2::{Digest, Sha256, Sha512};
+use chalice::bip44::Wallet;
+use std::env;
 
 fn byte_slice_as_hex(slice: &[u8]) -> String {
     let mut result = String::new();

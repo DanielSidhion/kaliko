@@ -1,7 +1,9 @@
 extern crate byteorder;
 extern crate hex;
 extern crate hmac;
+#[macro_use] extern crate itertools;
 extern crate rand;
+extern crate ring;
 extern crate ripemd160;
 extern crate secp256k1;
 extern crate sha2;
