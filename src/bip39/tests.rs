@@ -87,7 +87,7 @@ const EXPECTED_SEEDS: &[&'static str] = &[
 fn trezor_seeds() {
     for (entropy, mnemonic, seed) in izip!(TEST_ENTROPIES.iter(), EXPECTED_MNEMONICS.iter(), EXPECTED_SEEDS.iter()) {
         let data = Vec::from_hex(entropy).unwrap();
-        let mnemonic_seed = MnemonicSeed::from_slice(&data).unwrap();
+        let mnemonic_seed = MnemonicSeed::from_entropy(&data).unwrap();
 
         let mnemonic_phrase = mnemonic_seed.as_words(WordList::English);
 

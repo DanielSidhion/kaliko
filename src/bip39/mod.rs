@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, BigEndian};
 use ring::{digest, pbkdf2};
 use sha2::{Digest, Sha256};
 
@@ -35,7 +34,7 @@ impl WordList {
 }
 
 impl MnemonicSeed {
-    pub fn from_slice(slice: &[u8]) -> Result<MnemonicSeed, BIP39Error> {
+    pub fn from_entropy(slice: &[u8]) -> Result<MnemonicSeed, BIP39Error> {
         match slice.len() {
             16 | 20 | 24 | 28 | 32 => {
                 let mut entropy = Vec::with_capacity(slice.len());
