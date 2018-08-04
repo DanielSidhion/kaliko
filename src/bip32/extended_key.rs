@@ -11,6 +11,29 @@ use sha2::{Digest, Sha256, Sha512};
 use std::fmt;
 use std::str;
 
+trait BIP32Value {
+    fn bip32_value(&self) -> [u8; 4];
+    fn from_slice(slice: &[u8]) -> Result<Network, BIP32Error>;
+}
+
+impl BIP32Value for Network {
+    fn bip32_value(&self) -> [u8; 4] {
+        match *self {
+            Network::Mainnet => [0x04, 0x88, 0xAD, 0xE4],
+            Network::Testnet | Network::Testnet3 => [0x04, 0x35, 0x83, 0x94],
+            Network::Namecoin => panic!("I don't know a BIP32 value for Namecoin!"),
+        }
+    }
+
+    fn from_slice(slice: &[u8]) -> Result<Network, BIP32Error> {
+        match slice {
+            [0x04, 0x88, 0xAD, 0xE4] => Ok(Network::Mainnet),
+            [0x04, 0x35, 0x83, 0x94] => Ok(Network::Testnet),
+            _ => Err(BIP32Error::InvalidNetworkType),
+        }
+    }
+}
+
 pub struct ExtendedKey {
     network_type: Network,
     depth: u8,
@@ -61,10 +84,7 @@ impl ExtendedKey {
     pub fn serialize(&self) -> [u8; EXTENDED_KEY_SIZE] {
         let mut ret = [0; EXTENDED_KEY_SIZE];
 
-        ret[0..4].copy_from_slice(&match self.network_type {
-            Network::Mainnet => [0x04, 0x88, 0xAD, 0xE4],
-            Network::Testnet => [0x04, 0x35, 0x83, 0x94],
-        });
+        ret[0..4].copy_from_slice(&self.network_type.bip32_value());
 
         ret[4] = self.depth;
 
@@ -87,11 +107,7 @@ impl ExtendedKey {
             return Err(BIP32Error::InvalidPrivateKey)
         }
 
-        let network_type = match slice[0..4] {
-            [0x04, 0x88, 0xAD, 0xE4] => Network::Mainnet,
-            [0x04, 0x35, 0x83, 0x94] => Network::Testnet,
-            _ => return Err(BIP32Error::InvalidNetworkType),
-        };
+        let network_type = Network::from_slice(&slice[0..4])?;
 
         let depth = slice[4];
         let mut parent_fingerprint = [0; FINGERPRINT_SIZE];
