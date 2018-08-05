@@ -58,30 +58,52 @@ impl NetworkValue for Network {
 #[derive(Debug)]
 pub enum Command {
     Version(VersionPayload),
+    Verack,
+    Ping(u64),
+    Pong(u64),
 }
+
+const VERSION_COMMAND: [u8; 12] = [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 0, 0, 0, 0];
+const VERACK_COMMAND: [u8; 12] = [b'v', b'e', b'r', b'a', b'c', b'k', 0, 0, 0, 0, 0, 0];
+const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
+const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 
 impl Command {
     pub fn name_as_bytes(&self) -> [u8; 12] {
         match *self {
-            Command::Version(_) => [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 0, 0, 0, 0],
+            Command::Version(_) => VERSION_COMMAND,
+            Command::Verack => VERACK_COMMAND,
+            Command::Ping(_) => PING_COMMAND,
+            Command::Pong(_) => PONG_COMMAND,
         }
     }
 
     pub fn payload_as_bytes(&self) -> Vec<u8> {
         match *self {
             Command::Version(ref p) => p.serialize(),
+            Command::Verack => vec![],
+            Command::Ping(p) | Command::Pong(p) => {
+                let mut result = vec![];
+                result.write_u64::<LittleEndian>(p).unwrap();
+                result
+            },
         }
     }
 
     pub fn length(&self) -> usize {
         match *self {
             Command::Version(_) => VersionPayload::length(),
+            Command::Verack => 0,
+            Command::Ping(_) => 8,
+            Command::Pong(_) => 8,
         }
     }
 
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<Command, NetworkError> {
         let mut command_bytes = [0u8; 12];
         reader.read_exact(&mut command_bytes)?;
+
+        println!("Got the following command bytes: {:x?}", command_bytes);
 
         // To get the command payload, we need to read length and checksum first.
         let length = reader.read_u32::<LittleEndian>()?;
@@ -92,7 +114,16 @@ impl Command {
         let mut constrained_reader = reader.take(length as u64);
 
         let result = match command_bytes {
-            [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 0, 0, 0, 0] => Command::Version(VersionPayload::deserialize(&mut constrained_reader)?),
+            VERSION_COMMAND => Command::Version(VersionPayload::deserialize(&mut constrained_reader)?),
+            VERACK_COMMAND => Command::Verack,
+            PING_COMMAND => {
+                let result = constrained_reader.read_u64::<LittleEndian>()?;
+                Command::Ping(result)
+            },
+            PONG_COMMAND => {
+                let result = constrained_reader.read_u64::<LittleEndian>()?;
+                Command::Pong(result)
+            },
             _ => return Err(NetworkError::InvalidCommand),
         };
 
@@ -330,8 +361,8 @@ impl VersionPayload {
 
 #[derive(Debug)]
 pub struct Message {
-    network: Network,
-    command: Command,
+    pub network: Network,
+    pub command: Command,
     checksum: u32,
 }
 

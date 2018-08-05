@@ -26,13 +26,44 @@ fn main() {
         let msg = network::Message::new(bitcoin::Network::Testnet3, cmd);
 
         let payload: Vec<u8> = msg.into_iter().collect();
-
         println!("Payload: {:?}", byte_slice_as_hex(&payload[..]));
 
-        connection.write(&payload[..]);
-
+        connection.write(&payload);
         let result_msg = network::Message::deserialize(connection).unwrap();
         println!("Got message back: {:#?}", result_msg);
+
+        let result_msg = network::Message::deserialize(connection).unwrap();
+        if let network::Command::Verack = result_msg.command {
+            let msg = network::Message::new(bitcoin::Network::Testnet3, network::Command::Verack);
+            let payload: Vec<u8> = msg.into_iter().collect();
+            connection.write(&payload);
+
+            let msg = network::Message::new(bitcoin::Network::Testnet3, network::Command::Ping(0x0123456789ABCDEF));
+            let payload: Vec<u8> = msg.into_iter().collect();
+            connection.write(&payload);
+
+            let mut result_msg = network::Message::deserialize(connection);
+
+            while result_msg.is_err() {
+                println!("Got some invalid command, trying to receive something else");
+                result_msg = network::Message::deserialize(connection);
+            }
+
+            let result_msg = result_msg.unwrap();
+
+            match result_msg.command {
+                network::Command::Pong(n) => {
+                    match n {
+                        0x0123456789ABCDEF => println!("It works!"),
+                        _ => println!("It almost works! Nonce is different"),
+                    }
+                },
+                _ => {
+                    println!("Boo");
+                    println!("Received: {:#?}", result_msg);
+                }
+            }
+        }
     } else {
         println!("Connection failed");
     }
