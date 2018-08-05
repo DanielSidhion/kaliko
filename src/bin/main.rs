@@ -30,14 +30,9 @@ fn main() {
         println!("Payload: {:?}", byte_slice_as_hex(&payload[..]));
 
         connection.write(&payload[..]);
-        let mut result = [0u8; 2048];
-        let mut size = connection.read(&mut result).unwrap();
 
-        while (size == 0) {
-            size = connection.read(&mut result).unwrap();
-        }
-
-        println!("Result: {:?}", byte_slice_as_hex(&result[0..size]));
+        let result_msg = network::Message::deserialize(connection).unwrap();
+        println!("Got message back: {:#?}", result_msg);
     } else {
         println!("Connection failed");
     }
