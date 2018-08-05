@@ -59,6 +59,7 @@ impl NetworkValue for Network {
 pub enum Command {
     Version(VersionPayload),
     Verack,
+    SendHeaders,
     Ping(u64),
     Pong(u64),
 }
@@ -67,12 +68,14 @@ const VERSION_COMMAND: [u8; 12] = [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 
 const VERACK_COMMAND: [u8; 12] = [b'v', b'e', b'r', b'a', b'c', b'k', 0, 0, 0, 0, 0, 0];
 const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
+const SENDHEADERS_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'h', b'e', b'a', b'd', b'e', b'r', b's', 0];
 
 impl Command {
     pub fn name_as_bytes(&self) -> [u8; 12] {
         match *self {
             Command::Version(_) => VERSION_COMMAND,
             Command::Verack => VERACK_COMMAND,
+            Command::SendHeaders => SENDHEADERS_COMMAND,
             Command::Ping(_) => PING_COMMAND,
             Command::Pong(_) => PONG_COMMAND,
         }
@@ -82,6 +85,7 @@ impl Command {
         match *self {
             Command::Version(ref p) => p.serialize(),
             Command::Verack => vec![],
+            Command::SendHeaders => vec![],
             Command::Ping(p) | Command::Pong(p) => {
                 let mut result = vec![];
                 result.write_u64::<LittleEndian>(p).unwrap();
@@ -94,6 +98,7 @@ impl Command {
         match *self {
             Command::Version(_) => VersionPayload::length(),
             Command::Verack => 0,
+            Command::SendHeaders => 0,
             Command::Ping(_) => 8,
             Command::Pong(_) => 8,
         }
@@ -103,7 +108,9 @@ impl Command {
         let mut command_bytes = [0u8; 12];
         reader.read_exact(&mut command_bytes)?;
 
-        println!("Got the following command bytes: {:x?}", command_bytes);
+        let mut vec = vec![];
+        vec.extend_from_slice(&command_bytes);
+        println!("Got the following command: {}", String::from_utf8(vec).unwrap());
 
         // To get the command payload, we need to read length and checksum first.
         let length = reader.read_u32::<LittleEndian>()?;
@@ -116,6 +123,7 @@ impl Command {
         let result = match command_bytes {
             VERSION_COMMAND => Command::Version(VersionPayload::deserialize(&mut constrained_reader)?),
             VERACK_COMMAND => Command::Verack,
+            SENDHEADERS_COMMAND => Command::SendHeaders,
             PING_COMMAND => {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Ping(result)
