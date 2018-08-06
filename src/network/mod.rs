@@ -1,10 +1,12 @@
 use bitcoin::Network;
 
+mod addr;
+mod cmpct;
 pub mod command;
 pub mod message;
-mod varstring;
 mod networkaddress;
-mod cmpct;
+mod varint;
+mod varstring;
 pub mod version;
 
 pub use self::command::Command;

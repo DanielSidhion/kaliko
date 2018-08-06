@@ -3,8 +3,9 @@ use sha2::{Digest, Sha256};
 use std::io::{Read};
 
 use network::NetworkError;
-use network::version::VersionPayload;
+use network::addr::AddrPayload;
 use network::cmpct::SendCmpctPayload;
+use network::version::VersionPayload;
 
 #[derive(Debug)]
 pub enum Command {
@@ -12,16 +13,20 @@ pub enum Command {
     Verack,
     SendHeaders,
     SendCmpct(SendCmpctPayload),
+    Addr(AddrPayload),
+    Feefilter(u64),
     Ping(u64),
     Pong(u64),
 }
 
 const VERSION_COMMAND: [u8; 12] = [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 0, 0, 0, 0];
 const VERACK_COMMAND: [u8; 12] = [b'v', b'e', b'r', b'a', b'c', b'k', 0, 0, 0, 0, 0, 0];
-const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
-const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 const SENDHEADERS_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'h', b'e', b'a', b'd', b'e', b'r', b's', 0];
 const SENDCMPCT_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'c', b'm', b'p', b'c', b't', 0, 0, 0];
+const ADDR_COMMAND: [u8; 12] = [b'a', b'd', b'd', b'r', 0, 0, 0, 0, 0, 0, 0, 0];
+const FEEFILTER_COMMAND: [u8; 12] = [b'f', b'e', b'e', b'f', b'i', b'l', b't', b'e', b'r', 0, 0, 0];
+const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
+const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 
 impl Command {
     pub fn name(&self) -> &str {
@@ -30,6 +35,8 @@ impl Command {
             Command::Verack => "verack",
             Command::SendHeaders => "sendheaders",
             Command::SendCmpct(_) => "sendcmpct",
+            Command::Addr(_) => "addr",
+            Command::Feefilter(_) => "feefilter",
             Command::Ping(_) => "ping",
             Command::Pong(_) => "pong",
         }
@@ -41,6 +48,8 @@ impl Command {
             Command::Verack => VERACK_COMMAND,
             Command::SendHeaders => SENDHEADERS_COMMAND,
             Command::SendCmpct(_) => SENDCMPCT_COMMAND,
+            Command::Addr(_) => ADDR_COMMAND,
+            Command::Feefilter(_) => FEEFILTER_COMMAND,
             Command::Ping(_) => PING_COMMAND,
             Command::Pong(_) => PONG_COMMAND,
         }
@@ -52,7 +61,8 @@ impl Command {
             Command::Verack => vec![],
             Command::SendHeaders => vec![],
             Command::SendCmpct(ref p) => p.serialize(),
-            Command::Ping(p) | Command::Pong(p) => {
+            Command::Addr(ref p) => p.serialize(),
+            Command::Feefilter(p) | Command::Ping(p) | Command::Pong(p) => {
                 let mut result = vec![];
                 result.write_u64::<LittleEndian>(p).unwrap();
                 result
@@ -66,6 +76,8 @@ impl Command {
             Command::Verack => 0,
             Command::SendHeaders => 0,
             Command::SendCmpct(_) => SendCmpctPayload::length(),
+            Command::Addr(ref p) => p.length(),
+            Command::Feefilter(_) => 8,
             Command::Ping(_) => 8,
             Command::Pong(_) => 8,
         }
@@ -93,6 +105,11 @@ impl Command {
             VERACK_COMMAND => Command::Verack,
             SENDHEADERS_COMMAND => Command::SendHeaders,
             SENDCMPCT_COMMAND => Command::SendCmpct(SendCmpctPayload::deserialize(&mut constrained_reader)?),
+            ADDR_COMMAND => Command::Addr(AddrPayload::deserialize(&mut constrained_reader)?),
+            FEEFILTER_COMMAND => {
+                let result = constrained_reader.read_u64::<LittleEndian>()?;
+                Command::Feefilter(result)
+            },
             PING_COMMAND => {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Ping(result)
