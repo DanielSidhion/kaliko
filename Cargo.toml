@@ -1,10 +1,10 @@
 [package]
-name = "chalice"
+name = "kaliko"
 version = "0.1.0"
 authors = ["sidhion"]
 
 [lib]
-name = "chalice"
+name = "kaliko"
 path = "src/lib.rs"
 
 [dependencies]

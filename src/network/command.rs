@@ -1,0 +1,121 @@
+use byteorder::{ByteOrder, BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use sha2::{Digest, Sha256};
+use std::io::{Read};
+
+use network::NetworkError;
+use network::version::VersionPayload;
+use network::cmpct::SendCmpctPayload;
+
+#[derive(Debug)]
+pub enum Command {
+    Version(VersionPayload),
+    Verack,
+    SendHeaders,
+    SendCmpct(SendCmpctPayload),
+    Ping(u64),
+    Pong(u64),
+}
+
+const VERSION_COMMAND: [u8; 12] = [b'v', b'e', b'r', b's', b'i', b'o', b'n', 0, 0, 0, 0, 0];
+const VERACK_COMMAND: [u8; 12] = [b'v', b'e', b'r', b'a', b'c', b'k', 0, 0, 0, 0, 0, 0];
+const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
+const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
+const SENDHEADERS_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'h', b'e', b'a', b'd', b'e', b'r', b's', 0];
+const SENDCMPCT_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'c', b'm', b'p', b'c', b't', 0, 0, 0];
+
+impl Command {
+    pub fn name(&self) -> &str {
+        match *self {
+            Command::Version(_) => "version",
+            Command::Verack => "verack",
+            Command::SendHeaders => "sendheaders",
+            Command::SendCmpct(_) => "sendcmpct",
+            Command::Ping(_) => "ping",
+            Command::Pong(_) => "pong",
+        }
+    }
+
+    pub fn name_as_bytes(&self) -> [u8; 12] {
+        match *self {
+            Command::Version(_) => VERSION_COMMAND,
+            Command::Verack => VERACK_COMMAND,
+            Command::SendHeaders => SENDHEADERS_COMMAND,
+            Command::SendCmpct(_) => SENDCMPCT_COMMAND,
+            Command::Ping(_) => PING_COMMAND,
+            Command::Pong(_) => PONG_COMMAND,
+        }
+    }
+
+    pub fn payload_as_bytes(&self) -> Vec<u8> {
+        match *self {
+            Command::Version(ref p) => p.serialize(),
+            Command::Verack => vec![],
+            Command::SendHeaders => vec![],
+            Command::SendCmpct(ref p) => p.serialize(),
+            Command::Ping(p) | Command::Pong(p) => {
+                let mut result = vec![];
+                result.write_u64::<LittleEndian>(p).unwrap();
+                result
+            },
+        }
+    }
+
+    pub fn length(&self) -> usize {
+        match *self {
+            Command::Version(_) => VersionPayload::length(),
+            Command::Verack => 0,
+            Command::SendHeaders => 0,
+            Command::SendCmpct(_) => SendCmpctPayload::length(),
+            Command::Ping(_) => 8,
+            Command::Pong(_) => 8,
+        }
+    }
+
+    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Command, NetworkError> {
+        let mut command_bytes = [0u8; 12];
+        reader.read_exact(&mut command_bytes)?;
+
+        let mut vec = vec![];
+        vec.extend_from_slice(&command_bytes);
+        let command_name = String::from_utf8(vec).unwrap();
+        println!("Got the following command: {}", command_name);
+
+        // To get the command payload, we need to read length and checksum first.
+        let length = reader.read_u32::<LittleEndian>()?;
+        let checksum = reader.read_u32::<BigEndian>()?;
+
+        // Constraining reader to read at most `length` bytes.
+        // Should probably do some validation of length here to prevent huge lengths.
+        let mut constrained_reader = reader.take(length as u64);
+
+        let result = match command_bytes {
+            VERSION_COMMAND => Command::Version(VersionPayload::deserialize(&mut constrained_reader)?),
+            VERACK_COMMAND => Command::Verack,
+            SENDHEADERS_COMMAND => Command::SendHeaders,
+            SENDCMPCT_COMMAND => Command::SendCmpct(SendCmpctPayload::deserialize(&mut constrained_reader)?),
+            PING_COMMAND => {
+                let result = constrained_reader.read_u64::<LittleEndian>()?;
+                Command::Ping(result)
+            },
+            PONG_COMMAND => {
+                let result = constrained_reader.read_u64::<LittleEndian>()?;
+                Command::Pong(result)
+            },
+            _ => return Err(NetworkError::InvalidCommand(command_name)),
+        };
+
+        let actual_checksum = result.checksum();
+        if checksum != actual_checksum {
+            return Err(NetworkError::InvalidChecksum);
+        }
+
+        Ok(result)
+    }
+
+    pub fn checksum(&self) -> u32 {
+        let bytes = self.payload_as_bytes();
+        let dhash = Sha256::digest(Sha256::digest(&bytes[..]).as_slice());
+
+        BigEndian::read_u32(&dhash[..4])
+    }
+}
