@@ -5,6 +5,7 @@ use std::io::{Read};
 use network::NetworkError;
 use network::addr::AddrPayload;
 use network::cmpct::SendCmpctPayload;
+use network::inv::InvPayload;
 use network::version::VersionPayload;
 
 #[derive(Debug)]
@@ -15,6 +16,7 @@ pub enum Command {
     SendCmpct(SendCmpctPayload),
     Addr(AddrPayload),
     Feefilter(u64),
+    Inv(InvPayload),
     Ping(u64),
     Pong(u64),
 }
@@ -25,6 +27,7 @@ const SENDHEADERS_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'h', b'e', b'a',
 const SENDCMPCT_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'c', b'm', b'p', b'c', b't', 0, 0, 0];
 const ADDR_COMMAND: [u8; 12] = [b'a', b'd', b'd', b'r', 0, 0, 0, 0, 0, 0, 0, 0];
 const FEEFILTER_COMMAND: [u8; 12] = [b'f', b'e', b'e', b'f', b'i', b'l', b't', b'e', b'r', 0, 0, 0];
+const INV_COMMAND: [u8; 12] = [b'i', b'n', b'v', 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -37,6 +40,7 @@ impl Command {
             Command::SendCmpct(_) => "sendcmpct",
             Command::Addr(_) => "addr",
             Command::Feefilter(_) => "feefilter",
+            Command::Inv(_) => "inv",
             Command::Ping(_) => "ping",
             Command::Pong(_) => "pong",
         }
@@ -50,6 +54,7 @@ impl Command {
             Command::SendCmpct(_) => SENDCMPCT_COMMAND,
             Command::Addr(_) => ADDR_COMMAND,
             Command::Feefilter(_) => FEEFILTER_COMMAND,
+            Command::Inv(_) => INV_COMMAND,
             Command::Ping(_) => PING_COMMAND,
             Command::Pong(_) => PONG_COMMAND,
         }
@@ -67,6 +72,7 @@ impl Command {
                 result.write_u64::<LittleEndian>(p).unwrap();
                 result
             },
+            Command::Inv(ref p) => p.serialize(),
         }
     }
 
@@ -78,6 +84,7 @@ impl Command {
             Command::SendCmpct(_) => SendCmpctPayload::length(),
             Command::Addr(ref p) => p.length(),
             Command::Feefilter(_) => 8,
+            Command::Inv(ref p) => p.length(),
             Command::Ping(_) => 8,
             Command::Pong(_) => 8,
         }
@@ -86,11 +93,6 @@ impl Command {
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<Command, NetworkError> {
         let mut command_bytes = [0u8; 12];
         reader.read_exact(&mut command_bytes)?;
-
-        let mut vec = vec![];
-        vec.extend_from_slice(&command_bytes);
-        let command_name = String::from_utf8(vec).unwrap();
-        println!("Got the following command: {}", command_name);
 
         // To get the command payload, we need to read length and checksum first.
         let length = reader.read_u32::<LittleEndian>()?;
@@ -110,6 +112,7 @@ impl Command {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Feefilter(result)
             },
+            INV_COMMAND => Command::Inv(InvPayload::deserialize(&mut constrained_reader)?),
             PING_COMMAND => {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Ping(result)
@@ -118,7 +121,12 @@ impl Command {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Pong(result)
             },
-            _ => return Err(NetworkError::InvalidCommand(command_name)),
+            _ => {
+                let mut vec = vec![];
+                vec.extend_from_slice(&command_bytes);
+                let command_name = String::from_utf8(vec).unwrap();
+                return Err(NetworkError::InvalidCommand(command_name))
+            },
         };
 
         let actual_checksum = result.checksum();

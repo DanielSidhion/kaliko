@@ -3,6 +3,7 @@ use bitcoin::Network;
 mod addr;
 mod cmpct;
 pub mod command;
+mod inv;
 pub mod message;
 mod networkaddress;
 mod varint;
@@ -19,6 +20,7 @@ pub enum NetworkError {
     UnknownNetworkIdentifier,
     InvalidCommand(String),
     InvalidChecksum,
+    InvalidValue,
 }
 
 // TODO: work on this.
