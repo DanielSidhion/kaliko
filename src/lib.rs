@@ -14,3 +14,4 @@ pub mod bip39;
 pub mod bip44;
 pub mod bitcoin;
 pub mod network;
+pub mod peer;

@@ -1,71 +1,37 @@
 extern crate kaliko;
 
-use kaliko::bitcoin;
-use kaliko::network::{Command, Message, NetworkError};
-use kaliko::network::version::VersionPayload;
-use std::io::prelude::*;
-use std::net::{TcpStream};
+use kaliko::peer::PeerConnection;
+use std::net::TcpStream;
+use std::sync::mpsc;
+use std::thread;
 
-fn byte_slice_as_hex(slice: &[u8]) -> String {
-    let mut result = String::new();
+// fn byte_slice_as_hex(slice: &[u8]) -> String {
+//     let mut result = String::new();
 
-    for byte in slice {
-        result.push_str(&format!("{:02x}", byte));
-    }
+//     for byte in slice {
+//         result.push_str(&format!("{:02x}", byte));
+//     }
 
-    result
-}
-
-fn version_handshake(connection: &mut TcpStream) -> i32 {
-    let remote_version;
-
-    let version = VersionPayload::new();
-    let cmd = Command::Version(version);
-    let msg = Message::new(bitcoin::Network::Testnet3, cmd);
-
-    let payload: Vec<u8> = msg.into_iter().collect();
-    connection.write(&payload).unwrap();
-
-    let result_msg = Message::deserialize(connection).unwrap();
-    match result_msg.command {
-        Command::Version(p) => {
-            remote_version = p.version();
-        },
-        _ => panic!("Expected version command"),
-    }
-
-    let result_msg = Message::deserialize(connection).unwrap();
-    match result_msg.command {
-        Command::Verack => {},
-        _ => panic!("Expected verack command"),
-    }
-
-    // Send our verack as well.
-    let msg = Message::new(bitcoin::Network::Testnet3, Command::Verack);
-    let payload: Vec<u8> = msg.into_iter().collect();
-    connection.write(&payload).unwrap();
-
-    remote_version
-}
+//     result
+// }
 
 fn main() {
-    if let Ok(ref mut connection) = TcpStream::connect("185.28.76.179:18333") {
-        println!("Connected! Sending version");
+    let (tx, rx) = mpsc::channel();
 
-        let version = version_handshake(connection);
-        println!("Version handshake complete! Remote's version is {}", version);
+    if let Ok(connection) = TcpStream::connect("185.28.76.179:18333") {
+        println!("Connected!");
 
-        loop {
-            let msg = Message::deserialize(connection);
-            if let Err(NetworkError::InvalidCommand(name)) = msg {
-                println!("Received invalid command: {}", name);
-                continue;
-            }
-
-            let msg = msg.unwrap();
-            println!("Received command: {}", msg.command.name());
-        }
+        let tx = tx.clone();
+        thread::spawn(move || {
+            let mut peer_connection = PeerConnection::new(connection, tx);
+            peer_connection.handle_connection();
+        });
     } else {
         println!("Connection failed");
+    }
+
+    loop {
+        let msg = rx.recv().unwrap();
+        println!("Got message back: {}", msg.command.name());
     }
 }
