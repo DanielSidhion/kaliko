@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use sha2::{Digest, Sha256};
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 use network::addr::AddrPayload;
@@ -60,20 +60,19 @@ impl Command {
         }
     }
 
-    pub fn payload_as_bytes(&self) -> Vec<u8> {
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
         match *self {
-            Command::Version(ref p) => p.serialize(),
-            Command::Verack => vec![],
-            Command::SendHeaders => vec![],
-            Command::SendCmpct(ref p) => p.serialize(),
-            Command::Addr(ref p) => p.serialize(),
+            Command::Version(ref p) => p.serialize(writer)?,
+            Command::SendCmpct(ref p) => p.serialize(writer)?,
+            Command::Addr(ref p) => p.serialize(writer)?,
             Command::Feefilter(p) | Command::Ping(p) | Command::Pong(p) => {
-                let mut result = vec![];
-                result.write_u64::<LittleEndian>(p).unwrap();
-                result
+                writer.write_u64::<LittleEndian>(p)?;
             },
-            Command::Inv(ref p) => p.serialize(),
+            Command::Inv(ref p) => p.serialize(writer)?,
+            Command::Verack | Command::SendHeaders => (),
         }
+
+        Ok(())
     }
 
     pub fn length(&self) -> usize {
@@ -138,7 +137,9 @@ impl Command {
     }
 
     pub fn checksum(&self) -> u32 {
-        let bytes = self.payload_as_bytes();
+        let length = self.length();
+        let mut bytes = vec![0u8; length];
+        self.serialize(&mut bytes);
         let dhash = Sha256::digest(Sha256::digest(&bytes[..]).as_slice());
 
         BigEndian::read_u32(&dhash[..4])

@@ -21,12 +21,16 @@ pub enum NetworkError {
     InvalidCommand(String),
     InvalidChecksum,
     InvalidValue,
+    PeerConnectionProblem,
 }
 
 // TODO: work on this.
 impl From<::std::io::Error> for NetworkError {
     fn from(error: ::std::io::Error) -> NetworkError {
+        println!("Got std::io::Error! Need to convert to NetworkError");
+        println!("Error: {:#?}", error);
         match error.kind() {
+            ::std::io::ErrorKind::UnexpectedEof => NetworkError::PeerConnectionProblem,
             _ => NetworkError::NotEnoughData,
         }
     }

@@ -1,4 +1,5 @@
 use bitcoin;
+use byteorder::{ByteOrder, LittleEndian};
 use network::{Command, Message, NetworkError};
 use network::version::VersionPayload;
 use std::io::prelude::*;
@@ -24,9 +25,7 @@ impl PeerConnection {
         let version = VersionPayload::new();
         let cmd = Command::Version(version);
         let msg = Message::new(bitcoin::Network::Testnet3, cmd);
-
-        let payload: Vec<u8> = msg.into_iter().collect();
-        self.stream.write(&payload).unwrap();
+        msg.serialize(&mut self.stream).unwrap();
 
         let result_msg = Message::deserialize(&mut self.stream).unwrap();
         match result_msg.command {
@@ -44,8 +43,7 @@ impl PeerConnection {
 
         // Send our verack as well.
         let msg = Message::new(bitcoin::Network::Testnet3, Command::Verack);
-        let payload: Vec<u8> = msg.into_iter().collect();
-        self.stream.write(&payload).unwrap();
+        msg.serialize(&mut self.stream).unwrap();
     }
 
     pub fn handle_connection(&mut self) -> ! {
@@ -60,7 +58,21 @@ impl PeerConnection {
             }
 
             let msg = msg.unwrap();
-            println!("Received command: {}", msg.command.name());
+            println!("Received command: {} with length {}", msg.command.name(), msg.command.length());
+
+            // If it's something we can reply without sending to the receiver, do it here.
+            match msg.command.name() {
+                "ping" => {
+                    let mut payload = [0u8; 4];
+                    msg.command.serialize(&mut payload.as_mut()).unwrap();
+                    let pong = Message::new(bitcoin::Network::Mainnet, Command::Pong(LittleEndian::read_u64(&payload)));
+                    println!("Replying back with pong");
+                    pong.serialize(&mut self.stream).unwrap();
+                    continue;
+                },
+                _ => (),
+            }
+
             self.message_receiver.send(msg).unwrap();
         }
     }

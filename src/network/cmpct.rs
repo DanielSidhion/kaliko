@@ -1,5 +1,5 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 
@@ -10,13 +10,11 @@ pub struct SendCmpctPayload {
 }
 
 impl SendCmpctPayload {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut result = vec![];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_u8(self.announce as u8)?;
+        writer.write_u64::<LittleEndian>(self.version)?;
 
-        result.write_u8(self.announce as u8).unwrap();
-        result.write_u64::<LittleEndian>(self.version).unwrap();
-
-        result
+        Ok(())
     }
 
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<SendCmpctPayload, NetworkError> {

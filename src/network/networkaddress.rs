@@ -1,5 +1,5 @@
-use byteorder::{ByteOrder, BigEndian, LittleEndian, ReadBytesExt};
-use std::io::{Read};
+use byteorder::{ByteOrder, BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 
@@ -26,25 +26,19 @@ impl NetworkAddress {
         30
     }
 
-    pub fn as_bytes_no_time(&self) -> [u8; 26] {
-        let mut result = [0; 26];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_u32::<LittleEndian>(self.time)?;
+        self.serialize_no_time(writer)?;
 
-        LittleEndian::write_u64(&mut result[0..8], self.services);
-        result[8..24].copy_from_slice(&self.ip);
-        BigEndian::write_i16(&mut result[24..26], self.port);
-
-        result
+        Ok(())
     }
 
-    pub fn as_bytes(&self) -> [u8; 30] {
-        let mut result = [0; 30];
+    pub fn serialize_no_time<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_u64::<LittleEndian>(self.services)?;
+        writer.write_all(&self.ip)?;
+        writer.write_i16::<BigEndian>(self.port)?;
 
-        LittleEndian::write_u32(&mut result[0..4], self.time);
-        LittleEndian::write_u64(&mut result[4..12], self.services);
-        result[12..28].copy_from_slice(&self.ip);
-        BigEndian::write_i16(&mut result[28..30], self.port);
-
-        result
+        Ok(())
     }
 
     pub fn deserialize_no_time<R: Read>(reader: &mut R) -> Result<NetworkAddress, NetworkError> {

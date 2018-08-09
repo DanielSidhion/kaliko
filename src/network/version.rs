@@ -1,5 +1,5 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read};
+use std::io::{Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use network::NetworkError;
@@ -24,20 +24,22 @@ impl VersionPayload {
         self.version
     }
     
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut result = vec![];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_i32::<LittleEndian>(self.version)?;
+        writer.write_u64::<LittleEndian>(self.services)?;
+        writer.write_i64::<LittleEndian>(self.timestamp)?;
 
-        result.write_i32::<LittleEndian>(self.version).unwrap();
-        result.write_u64::<LittleEndian>(self.services).unwrap();
-        result.write_i64::<LittleEndian>(self.timestamp).unwrap();
-        result.extend_from_slice(&self.addr_recv.as_bytes_no_time());
-        result.extend_from_slice(&self.addr_from.as_bytes_no_time());
-        result.write_u64::<LittleEndian>(self.nonce).unwrap();
-        result.extend_from_slice(&self.user_agent.as_bytes());
-        result.write_i32::<LittleEndian>(self.start_height).unwrap();
-        result.push(self.relay as u8);
+        self.addr_recv.serialize_no_time(writer)?;
+        self.addr_from.serialize_no_time(writer)?;
 
-        result
+        writer.write_u64::<LittleEndian>(self.nonce)?;
+
+        self.user_agent.serialize(writer)?;
+
+        writer.write_i32::<LittleEndian>(self.start_height)?;
+        writer.write_u8(self.relay as u8)?;
+
+        Ok(())
     }
 
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<VersionPayload, NetworkError> {

@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use bitcoin::Network;
 use network::{Command, NetworkError, NetworkValue};
@@ -22,27 +22,21 @@ impl Message {
         }
     }
 
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_u32::<LittleEndian>(self.network.network_value())?;
+        writer.write_all(&self.command.name_as_bytes())?;
+        writer.write_u32::<LittleEndian>(self.command.length() as u32)?;
+        // Internal byte order.
+        writer.write_u32::<BigEndian>(self.checksum)?;
+        self.command.serialize(writer)?;
+
+        Ok(())
+    }
+
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<Message, NetworkError> {
         let network = Network::from_u32(reader.read_u32::<LittleEndian>()?)?;
         let command = Command::deserialize(reader)?;
 
         Ok(Message::new(network, command))
-    }
-}
-
-impl IntoIterator for Message {
-    type Item = u8;
-    type IntoIter = ::std::iter::Chain<::std::vec::IntoIter<u8>, ::std::vec::IntoIter<u8>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut result = vec![];
-
-        result.write_u32::<LittleEndian>(self.network.network_value()).unwrap();
-        result.extend_from_slice(&self.command.name_as_bytes());
-        result.write_u32::<LittleEndian>(self.command.length() as u32).unwrap();
-        // Internal byte order.
-        result.write_u32::<BigEndian>(self.checksum).unwrap();
-
-        result.into_iter().chain(self.command.payload_as_bytes().into_iter())
     }
 }

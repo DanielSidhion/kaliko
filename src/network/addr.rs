@@ -1,4 +1,4 @@
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 use network::networkaddress::NetworkAddress;
@@ -11,15 +11,14 @@ pub struct AddrPayload {
 }
 
 impl AddrPayload {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut result = vec![];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        self.count.serialize(writer)?;
 
-        result.extend_from_slice(&self.count.as_bytes());
         for addr in self.addr_list.iter() {
-            result.extend_from_slice(&addr.as_bytes());
+            addr.serialize(writer)?;
         }
 
-        result
+        Ok(())
     }
 
     pub fn length(&self) -> usize {

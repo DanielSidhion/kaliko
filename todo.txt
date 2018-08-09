@@ -2,3 +2,5 @@
 [] Make sure all crypto is well implemented and in as few dependencies as possible
 [] Find a way to get rid of ring (the lib) or to go full ring
 [] Make sure the right unicode NFKD is being used for generating seeds from bip39. Pretty sure the current implementation fails for things that actually change under NFKD.
+[] Print the raw buffer received before parsing a message and let the code run for a while. I got an "NotEnoughData" error when letting the thing run for a while and can't debug now.
+   Update: apparently that's a timeout or some error when the peer takes too long to respond.

@@ -1,4 +1,4 @@
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 use network::varint::VarInt;
@@ -16,14 +16,12 @@ impl VarString {
         }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
-        let mut result = vec![];
-
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
         let length = VarInt::new(self.data.len() as u64);
-        result.extend_from_slice(&length.as_bytes());
-        result.extend_from_slice(self.data.as_bytes());
+        length.serialize(writer)?;
+        writer.write_all(&self.data.as_bytes())?;
 
-        result
+        Ok(())
     }
 
     pub fn deserialize<R: Read>(reader: &mut R) -> Result<VarString, NetworkError> {

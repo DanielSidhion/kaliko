@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read};
+use std::io::{Read, Write};
 
 use network::NetworkError;
 use network::varint::VarInt;
@@ -45,13 +45,11 @@ pub struct InventoryVector {
 }
 
 impl InventoryVector {
-    pub fn as_bytes(&self) -> [u8; 36] {
-        let mut result = [0; 36];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        writer.write_u32::<LittleEndian>(self.object_type.value())?;
+        writer.write_all(&self.hash)?;
 
-        LittleEndian::write_u32(&mut result[0..4], self.object_type.value());
-        &result[4..36].copy_from_slice(&self.hash);
-
-        result
+        Ok(())
     }
 
     pub fn length() -> usize {
@@ -77,15 +75,14 @@ pub struct InvPayload {
 }
 
 impl InvPayload {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut result = vec![];
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
+        self.count.serialize(writer)?;
 
-        result.extend_from_slice(&self.count.as_bytes());
         for object in self.inventory.iter() {
-            result.extend_from_slice(&object.as_bytes());
+            object.serialize(writer)?;
         }
 
-        result
+        Ok(())
     }
 
     pub fn length(&self) -> usize {
