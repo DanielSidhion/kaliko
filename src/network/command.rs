@@ -65,9 +65,7 @@ impl Command {
             Command::Version(ref p) => p.serialize(writer)?,
             Command::SendCmpct(ref p) => p.serialize(writer)?,
             Command::Addr(ref p) => p.serialize(writer)?,
-            Command::Feefilter(p) | Command::Ping(p) | Command::Pong(p) => {
-                writer.write_u64::<LittleEndian>(p)?;
-            },
+            Command::Feefilter(p) | Command::Ping(p) | Command::Pong(p) => writer.write_u64::<LittleEndian>(p)?,
             Command::Inv(ref p) => p.serialize(writer)?,
             Command::Verack | Command::SendHeaders => (),
         }
@@ -137,9 +135,8 @@ impl Command {
     }
 
     pub fn checksum(&self) -> u32 {
-        let length = self.length();
-        let mut bytes = vec![0u8; length];
-        self.serialize(&mut bytes);
+        let mut bytes = vec![];
+        self.serialize(&mut bytes).unwrap();
         let dhash = Sha256::digest(Sha256::digest(&bytes[..]).as_slice());
 
         BigEndian::read_u32(&dhash[..4])

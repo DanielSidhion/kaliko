@@ -42,4 +42,13 @@ impl AddrPayload {
             addr_list,
         })
     }
+
+    pub fn new(addr_list: Vec<NetworkAddress>) -> AddrPayload {
+        let count = VarInt::new(addr_list.len() as u64);
+
+        AddrPayload {
+            count,
+            addr_list,
+        }
+    }
 }

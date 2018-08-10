@@ -1,7 +1,7 @@
 use bitcoin::Network;
 
 mod addr;
-mod cmpct;
+pub mod cmpct;
 pub mod command;
 mod inv;
 pub mod message;
@@ -21,7 +21,7 @@ pub enum NetworkError {
     InvalidCommand(String),
     InvalidChecksum,
     InvalidValue,
-    PeerConnectionProblem,
+    PeerClosedConnection,
 }
 
 // TODO: work on this.
@@ -30,7 +30,7 @@ impl From<::std::io::Error> for NetworkError {
         println!("Got std::io::Error! Need to convert to NetworkError");
         println!("Error: {:#?}", error);
         match error.kind() {
-            ::std::io::ErrorKind::UnexpectedEof => NetworkError::PeerConnectionProblem,
+            ::std::io::ErrorKind::UnexpectedEof => NetworkError::PeerClosedConnection,
             _ => NetworkError::NotEnoughData,
         }
     }

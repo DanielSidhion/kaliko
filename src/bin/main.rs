@@ -18,6 +18,13 @@ use std::thread;
 fn main() {
     let (tx, rx) = mpsc::channel();
 
+    //if let Ok(connection) = TcpStream::connect("94.130.14.223:18333") {
+    //if let Ok(connection) = TcpStream::connect("54.71.51.214:18333") {
+    //if let Ok(connection) = TcpStream::connect("13.250.203.1:18333") {
+    //if let Ok(connection) = TcpStream::connect("13.125.190.124:18333") {
+    // if let Ok(connection) = TcpStream::connect("82.94.216.148:18333") {
+    // if let Ok(connection) = TcpStream::connect("94.130.14.223:18333") {
+    // if let Ok(connection) = TcpStream::connect("13.57.48.134:18333") {
     if let Ok(connection) = TcpStream::connect("185.28.76.179:18333") {
         println!("Connected!");
 
@@ -32,6 +39,6 @@ fn main() {
 
     loop {
         let msg = rx.recv().unwrap();
-        println!("Got message back: {}", msg.command.name());
+        println!("Got message back: {:?}", msg.command);
     }
 }

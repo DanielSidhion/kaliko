@@ -71,7 +71,7 @@ impl VersionPayload {
         86
     }
 
-    pub fn new() -> VersionPayload {
+    pub fn new(nonce: u64) -> VersionPayload {
         let time = SystemTime::now();
         let since_epoch = time.duration_since(UNIX_EPOCH).unwrap().as_secs();
 
@@ -84,7 +84,7 @@ impl VersionPayload {
             timestamp: since_epoch as i64,
             addr_recv: recipient,
             addr_from: origin,
-            nonce: 0,
+            nonce,
             user_agent: VarString::new(),
             start_height: 0,
             relay: false,
