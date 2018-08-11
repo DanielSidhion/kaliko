@@ -4,3 +4,4 @@
 [] Make sure the right unicode NFKD is being used for generating seeds from bip39. Pretty sure the current implementation fails for things that actually change under NFKD.
 [] Make a PeerConnection valid only for a given network (it doesn't make sense to send messages of different networks in the same connection - the port is different)
   [] Inside a PeerConnection from a network, close connection if we receive messages from another network
+[] Switch to using BufReader for TcpStreams

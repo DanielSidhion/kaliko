@@ -1,6 +1,7 @@
 use bitcoin;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use network::{Command, Message, NetworkError};
+use network::blocks::GetBlocksPayload;
 use network::cmpct::SendCmpctPayload;
 use network::version::VersionPayload;
 use rand;
@@ -78,6 +79,11 @@ impl PeerConnection {
 
         // self.send_parameter_messages();
         // println!("Finished sending all parameter messages!");
+
+        // Sending fake getblocks message for first 4 blocks of the testnet3 blockchain.
+        let msg = Message::new(bitcoin::Network::Testnet3, Command::GetBlocks(GetBlocksPayload::new()));
+        msg.serialize(&mut self.stream).unwrap();
+        println!("Sent getblocks command");
 
         loop {
             let msg = Message::deserialize(&mut self.stream);

@@ -1,6 +1,11 @@
 extern crate kaliko;
+extern crate serde;
+#[macro_use] extern crate serde_derive;
+extern crate toml;
 
 use kaliko::peer::PeerConnection;
+use std::fs::File;
+use std::io::Read;
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::thread;
@@ -15,7 +20,21 @@ use std::thread;
 //     result
 // }
 
+#[derive(Deserialize)]
+struct Config {
+    storage_location: String,
+}
+
 fn main() {
+    let mut config_file = File::open("kaliko.toml").unwrap();
+    let mut contents = String::new();
+    config_file.read_to_string(&mut contents).unwrap();
+
+    let config: Config = toml::from_str(&contents).unwrap();
+    println!("storage_location = {}", config.storage_location);
+
+    // TODO: initialize storage with the location provided here, and start downloading block headers into it.
+
     let (tx, rx) = mpsc::channel();
 
     //if let Ok(connection) = TcpStream::connect("94.130.14.223:18333") {

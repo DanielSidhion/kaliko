@@ -38,7 +38,6 @@ impl InventoryType {
     }
 }
 
-#[derive(Debug)]
 pub struct InventoryVector {
     object_type: InventoryType,
     hash: [u8; 32],
@@ -65,6 +64,21 @@ impl InventoryVector {
             object_type,
             hash,
         })
+    }
+}
+
+fn byte_slice_as_hex(slice: &[u8]) -> String {
+    let mut result = String::new();
+    for byte in slice {
+        result.push_str(&format!("{:02x}", byte));
+    }
+    result
+}
+
+impl ::std::fmt::Debug for InventoryVector {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        let reversed_hash = self.hash.iter().cloned().rev().collect::<Vec<u8>>();
+        write!(f, "InventoryVector {{ {:?}, hash: {} }}", self.object_type, byte_slice_as_hex(&reversed_hash))
     }
 }
 

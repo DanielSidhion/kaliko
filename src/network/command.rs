@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 use network::NetworkError;
 use network::addr::AddrPayload;
+use network::blocks::GetBlocksPayload;
 use network::cmpct::SendCmpctPayload;
 use network::inv::InvPayload;
 use network::version::VersionPayload;
@@ -17,6 +18,7 @@ pub enum Command {
     Addr(AddrPayload),
     Feefilter(u64),
     Inv(InvPayload),
+    GetBlocks(GetBlocksPayload),
     Ping(u64),
     Pong(u64),
 }
@@ -28,6 +30,7 @@ const SENDCMPCT_COMMAND: [u8; 12] = [b's', b'e', b'n', b'd', b'c', b'm', b'p', b
 const ADDR_COMMAND: [u8; 12] = [b'a', b'd', b'd', b'r', 0, 0, 0, 0, 0, 0, 0, 0];
 const FEEFILTER_COMMAND: [u8; 12] = [b'f', b'e', b'e', b'f', b'i', b'l', b't', b'e', b'r', 0, 0, 0];
 const INV_COMMAND: [u8; 12] = [b'i', b'n', b'v', 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const GETBLOCKS_COMMAND: [u8; 12] = [b'g', b'e', b't', b'b', b'l', b'o', b'c', b'k', b's', 0, 0, 0];
 const PING_COMMAND: [u8; 12] = [b'p', b'i', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 const PONG_COMMAND: [u8; 12] = [b'p', b'o', b'n', b'g', 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -41,6 +44,7 @@ impl Command {
             Command::Addr(_) => "addr",
             Command::Feefilter(_) => "feefilter",
             Command::Inv(_) => "inv",
+            Command::GetBlocks(_) => "getblocks",
             Command::Ping(_) => "ping",
             Command::Pong(_) => "pong",
         }
@@ -55,6 +59,7 @@ impl Command {
             Command::Addr(_) => ADDR_COMMAND,
             Command::Feefilter(_) => FEEFILTER_COMMAND,
             Command::Inv(_) => INV_COMMAND,
+            Command::GetBlocks(_) => GETBLOCKS_COMMAND,
             Command::Ping(_) => PING_COMMAND,
             Command::Pong(_) => PONG_COMMAND,
         }
@@ -67,6 +72,7 @@ impl Command {
             Command::Addr(ref p) => p.serialize(writer)?,
             Command::Feefilter(p) | Command::Ping(p) | Command::Pong(p) => writer.write_u64::<LittleEndian>(p)?,
             Command::Inv(ref p) => p.serialize(writer)?,
+            Command::GetBlocks(ref p) => p.serialize(writer)?,
             Command::Verack | Command::SendHeaders => (),
         }
 
@@ -82,6 +88,7 @@ impl Command {
             Command::Addr(ref p) => p.length(),
             Command::Feefilter(_) => 8,
             Command::Inv(ref p) => p.length(),
+            Command::GetBlocks(ref p) => p.length(),
             Command::Ping(_) => 8,
             Command::Pong(_) => 8,
         }
@@ -110,6 +117,7 @@ impl Command {
                 Command::Feefilter(result)
             },
             INV_COMMAND => Command::Inv(InvPayload::deserialize(&mut constrained_reader)?),
+            GETBLOCKS_COMMAND => Command::GetBlocks(GetBlocksPayload::deserialize(&mut constrained_reader)?),
             PING_COMMAND => {
                 let result = constrained_reader.read_u64::<LittleEndian>()?;
                 Command::Ping(result)

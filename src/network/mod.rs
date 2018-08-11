@@ -1,6 +1,7 @@
 use bitcoin::Network;
 
 mod addr;
+pub mod blocks;
 pub mod cmpct;
 pub mod command;
 mod inv;
