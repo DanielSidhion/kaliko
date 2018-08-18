@@ -4,6 +4,7 @@ mod addr;
 pub mod blocks;
 pub mod cmpct;
 pub mod command;
+pub mod headers;
 mod inv;
 pub mod message;
 mod networkaddress;
