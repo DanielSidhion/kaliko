@@ -80,6 +80,10 @@ impl PeerConnection {
         // self.send_parameter_messages();
         // println!("Finished sending all parameter messages!");
 
+        // let msg = Message::new(bitcoin::Network::Testnet3, Command::GetBlocks(GetBlocksOrHeadersPayload::new()));
+        // msg.serialize(&mut self.stream).unwrap();
+        // println!("Sent getblocks command");
+
         // Sending fake getheaders message for first 4 blocks of the testnet3 blockchain.
         let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new()));
         msg.serialize(&mut self.stream).unwrap();

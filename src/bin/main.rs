@@ -3,22 +3,23 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate toml;
 
+use kaliko::network::Command;
+use kaliko::network::headers::BlockHeader;
 use kaliko::peer::PeerConnection;
+use kaliko::storage::BlockHeaderStorage;
 use std::fs::File;
 use std::io::Read;
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::thread;
 
-// fn byte_slice_as_hex(slice: &[u8]) -> String {
-//     let mut result = String::new();
-
-//     for byte in slice {
-//         result.push_str(&format!("{:02x}", byte));
-//     }
-
-//     result
-// }
+fn byte_slice_as_hex(slice: &[u8]) -> String {
+    let mut result = String::new();
+    for byte in slice {
+        result.push_str(&format!("{:02x}", byte));
+    }
+    result
+}
 
 #[derive(Deserialize)]
 struct Config {
@@ -34,6 +35,7 @@ fn main() {
     println!("storage_location = {}", config.storage_location);
 
     // TODO: initialize storage with the location provided here, and start downloading block headers into it.
+    let mut storage = BlockHeaderStorage::new(&config.storage_location);
 
     let (tx, rx) = mpsc::channel();
 
@@ -59,5 +61,31 @@ fn main() {
     loop {
         let msg = rx.recv().unwrap();
         println!("Got message back: {:?}", msg.command);
+
+        match msg.command {
+            Command::Headers(ref p) => {
+                // Confirming that the blocks are forming a chain.
+                // TODO: Also confirm that their hash is below target.
+                let mut headers_in_chain = true;
+                let mut prev_hash = storage.latest_header.hash();
+
+                for header in &p.headers {
+                    if prev_hash != &header.prev_block {
+                        println!("Message contains header which is not in the chain!\n");
+                        println!("Latest hash: {}", byte_slice_as_hex(&prev_hash));
+                        headers_in_chain = false;
+                        break;
+                    }
+
+                    prev_hash = header.hash();
+                }
+
+                if headers_in_chain {
+                    println!("All headers in chain. Writing them to storage!");
+                    storage.write_headers(&p.headers).unwrap();
+                }
+            },
+            _ => (),
+        }
     }
 }

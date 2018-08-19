@@ -15,4 +15,5 @@ pub mod bip44;
 pub mod bitcoin;
 pub mod network;
 pub mod peer;
+pub mod storage;
 pub mod util;

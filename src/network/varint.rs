@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 
 use network::NetworkError;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct VarInt(u64);
 
 impl VarInt {
