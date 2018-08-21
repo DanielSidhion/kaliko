@@ -26,6 +26,11 @@ impl NetworkAddress {
         30
     }
 
+    pub fn ip_port_string(&self) -> String {
+        // TODO: remove this hack and output the correct IP:Port string for IPv4 and IPv6.
+        format!("{}.{}.{}.{}:{}", self.ip[12], self.ip[13], self.ip[14], self.ip[15], self.port)
+    }
+
     pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
         writer.write_u32::<LittleEndian>(self.time)?;
         self.serialize_no_time(writer)?;

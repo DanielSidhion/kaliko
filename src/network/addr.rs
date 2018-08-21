@@ -7,7 +7,7 @@ use network::varint::VarInt;
 #[derive(Debug)]
 pub struct AddrPayload {
     count: VarInt,
-    addr_list: Vec<NetworkAddress>,
+    pub addr_list: Vec<NetworkAddress>,
 }
 
 impl AddrPayload {

@@ -6,23 +6,45 @@ use network::cmpct::SendCmpctPayload;
 use network::version::VersionPayload;
 use rand;
 use rand::Rng;
+use std::fs::File;
 use std::io::prelude::*;
 use std::net::{TcpStream};
 use std::sync::mpsc::Sender;
 
+pub enum ControlMessage {
+    PeerConnectionEstablished,
+    PeerConnectionDestroyed,
+}
+
+pub fn read_peer_list(peer_list_location: &str) -> Vec<String> {
+    let mut peer_list = File::open(peer_list_location).unwrap();
+    let mut peers = String::new();
+    peer_list.read_to_string(&mut peers).unwrap();
+
+    let mut result = vec![];
+
+    for peer in peers.lines() {
+        result.push(String::from(peer));
+    }
+
+    result
+}
+
 pub struct PeerConnection {
     stream: TcpStream,
     message_receiver: Sender<Message>,
+    control_receiver: Sender<ControlMessage>,
     protocol_version: i32,
     random_generator: rand::ThreadRng,
     fee_filter: u64,
 }
 
 impl PeerConnection {
-    pub fn new(stream: TcpStream, message_receiver: Sender<Message>) -> PeerConnection {
+    pub fn new(stream: TcpStream, message_receiver: Sender<Message>, control_receiver: Sender<ControlMessage>) -> PeerConnection {
         PeerConnection {
             stream,
             message_receiver,
+            control_receiver,
             protocol_version: 0,
             random_generator: rand::thread_rng(),
             fee_filter: 0,
@@ -77,6 +99,15 @@ impl PeerConnection {
         self.version_handshake();
         println!("Version handshake complete! Remote's version is {}", self.protocol_version);
 
+        // TODO: remove this and instead make it support other versions.
+        if self.protocol_version != 70015 {
+            println!("Because our peer's version is not 70015, we're ending the connection with them");
+            return;
+        }
+
+        self.control_receiver.send(ControlMessage::PeerConnectionEstablished).unwrap();
+        // TODO: match on connection closed errors and send a PeerConnectionDestroyed message.
+
         // self.send_parameter_messages();
         // println!("Finished sending all parameter messages!");
 
@@ -85,9 +116,9 @@ impl PeerConnection {
         // println!("Sent getblocks command");
 
         // Sending fake getheaders message for first 4 blocks of the testnet3 blockchain.
-        let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new()));
-        msg.serialize(&mut self.stream).unwrap();
-        println!("Sent getblocks command");
+        // let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new()));
+        // msg.serialize(&mut self.stream).unwrap();
+        // println!("Sent getblocks command");
 
         loop {
             let msg = Message::deserialize(&mut self.stream);
