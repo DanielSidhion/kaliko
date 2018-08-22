@@ -7,9 +7,11 @@ use kaliko::network::{Command, Message};
 use kaliko::peer;
 use kaliko::peer::{ControlMessage, PeerConnection};
 use kaliko::storage::BlockHeaderStorage;
+use std::collections::HashSet;
+use std::fmt::Display;
 use std::fs::File;
 use std::io::Read;
-use std::net::TcpStream;
+use std::net::{SocketAddr, SocketAddrV6, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, mpsc, Mutex};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -22,6 +24,15 @@ fn byte_slice_as_hex(slice: &[u8]) -> String {
     result
 }
 
+fn socket_addr_to_v6(socket: SocketAddr) -> SocketAddrV6 {
+    match socket {
+        SocketAddr::V6(p) => p,
+        SocketAddr::V4(p) => {
+            SocketAddrV6::new(p.ip().to_ipv6_mapped(), p.port(), 0, 0)
+        },
+    }
+}
+
 #[derive(Deserialize)]
 struct Config {
     storage_location: String,
@@ -29,7 +40,7 @@ struct Config {
     max_active_peers: u16,
 }
 
-fn try_peer_connection(address: &str, msg_tx: Sender<Message>, control_tx: Sender<ControlMessage>) {
+fn try_peer_connection<A: ToSocketAddrs + Copy + Display>(address: A, msg_tx: Sender<Message>, control_tx: Sender<ControlMessage>) {
     // TODO: look into making this async.
     if let Ok(connection) = TcpStream::connect(address) {
         println!("Connected to {}!", address);
@@ -54,7 +65,7 @@ fn main() {
     let mut storage = BlockHeaderStorage::new(&config.storage_location);
 
     let initial_peers = peer::read_peer_list(&config.peer_list);
-    let current_peers = Arc::new(Mutex::new(0u16));
+    let current_peers = Arc::new(Mutex::new(HashSet::new()));
     let (control_tx, control_rx) = mpsc::channel();
     let (msg_tx, msg_rx) = mpsc::channel();
 
@@ -72,13 +83,13 @@ fn main() {
                 let msg = control_rx.recv().unwrap();
 
                 match msg {
-                    ControlMessage::PeerConnectionEstablished => {
-                        let mut num = current_peers.lock().unwrap();
-                        *num += 1;
+                    ControlMessage::PeerConnectionEstablished(p) => {
+                        let mut set = current_peers.lock().unwrap();
+                        set.insert(socket_addr_to_v6(p));
                     },
-                    ControlMessage::PeerConnectionDestroyed => {
-                        let mut num = current_peers.lock().unwrap();
-                        *num -= 1;
+                    ControlMessage::PeerConnectionDestroyed(p) => {
+                        let mut set = current_peers.lock().unwrap();
+                        set.remove(&socket_addr_to_v6(p));
                     },
                 }
             }
@@ -91,15 +102,17 @@ fn main() {
 
         match msg.command {
             Command::Addr(ref p) => {
-                let mut num = current_peers.lock().unwrap();
+                let mut set = current_peers.lock().unwrap();
 
                 // Here we're calculating how many extra peers we can try connecting to, and then try those.
                 // It's possible in the future we may need to just store the remaining peers in a list, that way we always have a backlog of peers to connect in case we lose connection to an active peer.
-                let max_extra_peers = (config.max_active_peers - *num) as usize;
-                for peer in p.addr_list.iter().take(max_extra_peers) {
+                let max_extra_peers = (config.max_active_peers as usize) - set.len();
+
+                // We only take `max_extra_peers` addresses that we aren't currently connected to.
+                for peer in p.addr_list.iter().filter(|addr| !set.contains(&addr.socket_addr())).take(max_extra_peers) {
                     let msg_tx = msg_tx.clone();
                     let control_tx = control_tx.clone();
-                    try_peer_connection(&peer.ip_port_string(), msg_tx, control_tx);
+                    try_peer_connection(peer.socket_addr(), msg_tx, control_tx);
                 }
             },
             Command::Headers(ref p) => {

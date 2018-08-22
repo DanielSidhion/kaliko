@@ -8,12 +8,12 @@ use rand;
 use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
-use std::net::{TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::mpsc::Sender;
 
 pub enum ControlMessage {
-    PeerConnectionEstablished,
-    PeerConnectionDestroyed,
+    PeerConnectionEstablished(SocketAddr),
+    PeerConnectionDestroyed(SocketAddr),
 }
 
 pub fn read_peer_list(peer_list_location: &str) -> Vec<String> {
@@ -105,7 +105,7 @@ impl PeerConnection {
             return;
         }
 
-        self.control_receiver.send(ControlMessage::PeerConnectionEstablished).unwrap();
+        self.control_receiver.send(ControlMessage::PeerConnectionEstablished(self.stream.peer_addr().unwrap())).unwrap();
         // TODO: match on connection closed errors and send a PeerConnectionDestroyed message.
 
         // self.send_parameter_messages();
