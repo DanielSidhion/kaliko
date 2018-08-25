@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-use std::net::{Ipv6Addr, SocketAddrV6};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use network::NetworkError;
 
@@ -20,8 +20,8 @@ impl NetworkAddress {
         }
     }
 
-    pub fn socket_addr(&self) -> SocketAddrV6 {
-        self.socket_addr
+    pub fn socket_addr(&self) -> SocketAddr {
+        SocketAddr::V6(self.socket_addr)
     }
 
     pub fn length() -> usize {

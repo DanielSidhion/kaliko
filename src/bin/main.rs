@@ -5,9 +5,8 @@ extern crate toml;
 
 use kaliko::network::{Command, Message};
 use kaliko::peer;
-use kaliko::peer::{ControlMessage, PeerConnection};
+use kaliko::peer::{PeerControlMessage, PeerConnection};
 use kaliko::storage::BlockHeaderStorage;
-use std::collections::HashSet;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::Read;
@@ -24,34 +23,11 @@ fn byte_slice_as_hex(slice: &[u8]) -> String {
     result
 }
 
-fn socket_addr_to_v6(socket: SocketAddr) -> SocketAddrV6 {
-    match socket {
-        SocketAddr::V6(p) => p,
-        SocketAddr::V4(p) => {
-            SocketAddrV6::new(p.ip().to_ipv6_mapped(), p.port(), 0, 0)
-        },
-    }
-}
-
 #[derive(Deserialize)]
 struct Config {
     storage_location: String,
-    peer_list: String,
-    max_active_peers: u16,
-}
-
-fn try_peer_connection<A: ToSocketAddrs + Copy + Display>(address: A, msg_tx: Sender<Message>, control_tx: Sender<ControlMessage>) {
-    // TODO: look into making this async.
-    if let Ok(connection) = TcpStream::connect(address) {
-        println!("Connected to {}!", address);
-
-        thread::spawn(move || {
-            let mut peer_connection = PeerConnection::new(connection, msg_tx, control_tx);
-            peer_connection.handle_connection();
-        });
-    } else {
-        println!("Connection failed to {}", address);
-    }
+    peer_seed_list: String,
+    max_active_peers: usize,
 }
 
 fn main() {
@@ -64,55 +40,27 @@ fn main() {
 
     let mut storage = BlockHeaderStorage::new(&config.storage_location);
 
-    let initial_peers = peer::read_peer_list(&config.peer_list);
-    let current_peers = Arc::new(Mutex::new(HashSet::new()));
-    let (control_tx, control_rx) = mpsc::channel();
+    let mut initial_peers = peer::read_peer_list(&config.peer_seed_list);
     let (msg_tx, msg_rx) = mpsc::channel();
+    let peer_manager = peer::PeerManager::new(msg_tx.clone(), config.max_active_peers);
+    let peer_manager_channel = peer_manager.control_sender();
+    peer_manager.start();
 
-    for peer in initial_peers.iter() {
-        let msg_tx = msg_tx.clone();
-        let control_tx = control_tx.clone();
-        try_peer_connection(peer, msg_tx, control_tx);
-    }
-
-    // Thread that listens for control messages from other threads.
-    {
-        let current_peers = Arc::clone(&current_peers);
-        thread::spawn(move || {
-            loop {
-                let msg = control_rx.recv().unwrap();
-
-                match msg {
-                    ControlMessage::PeerConnectionEstablished(p) => {
-                        let mut set = current_peers.lock().unwrap();
-                        set.insert(socket_addr_to_v6(p));
-                    },
-                    ControlMessage::PeerConnectionDestroyed(p) => {
-                        let mut set = current_peers.lock().unwrap();
-                        set.remove(&socket_addr_to_v6(p));
-                    },
-                }
-            }
-        });
+    while let Some(addr) = initial_peers.pop() {
+        println!("Sending message to connect to {}", addr);
+        peer_manager_channel.send(PeerControlMessage::StartPeerConnectionFromString(addr)).unwrap();
     }
 
     loop {
+        println!("Checking for messages");
         let msg = msg_rx.recv().unwrap();
         println!("Got message back: {:?}", msg.command);
 
         match msg.command {
             Command::Addr(ref p) => {
-                let mut set = current_peers.lock().unwrap();
-
-                // Here we're calculating how many extra peers we can try connecting to, and then try those.
-                // It's possible in the future we may need to just store the remaining peers in a list, that way we always have a backlog of peers to connect in case we lose connection to an active peer.
-                let max_extra_peers = (config.max_active_peers as usize) - set.len();
-
                 // We only take `max_extra_peers` addresses that we aren't currently connected to.
-                for peer in p.addr_list.iter().filter(|addr| !set.contains(&addr.socket_addr())).take(max_extra_peers) {
-                    let msg_tx = msg_tx.clone();
-                    let control_tx = control_tx.clone();
-                    try_peer_connection(peer.socket_addr(), msg_tx, control_tx);
+                for peer in p.addr_list.iter() {
+                    peer_manager_channel.send(PeerControlMessage::StartPeerConnectionFromSocketAddr(peer.socket_addr())).unwrap();
                 }
             },
             Command::Headers(ref p) => {
