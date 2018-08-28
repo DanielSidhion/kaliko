@@ -1,6 +1,8 @@
+use ::KalikoControlMessage;
+use bitcoin;
 use network::Message;
-use peer::{PeerConnection, PeerControlMessage};
-use std::collections::{HashSet, VecDeque};
+use peer::PeerConnection;
+use std::collections::{HashMap, VecDeque};
 use std::net::{SocketAddr, SocketAddrV6, ToSocketAddrs};
 use std::sync::{mpsc};
 use std::thread;
@@ -15,21 +17,25 @@ fn socket_addr_to_v6(socket: SocketAddr) -> SocketAddrV6 {
 }
 
 pub struct PeerManager {
+    network: bitcoin::Network,
     max_active_peers: usize,
-    active_peers: HashSet<SocketAddrV6>,
+    current_height: i32,
+    active_peers: HashMap<SocketAddrV6, mpsc::Sender<Message>>,
     potential_peers: VecDeque<SocketAddrV6>,
-    control_sender: mpsc::Sender<PeerControlMessage>,
-    control_receiver: mpsc::Receiver<PeerControlMessage>,
+    control_sender: mpsc::Sender<KalikoControlMessage>,
+    control_receiver: mpsc::Receiver<KalikoControlMessage>,
     message_sender: mpsc::Sender<Message>,
 }
 
 impl PeerManager {
-    pub fn new(message_sender: mpsc::Sender<Message>, max_active_peers: usize) -> PeerManager {
+    pub fn new(network: bitcoin::Network, message_sender: mpsc::Sender<Message>, max_active_peers: usize, current_height: i32) -> PeerManager {
         let (control_sender, control_receiver) = mpsc::channel();
 
         PeerManager {
+            network,
             max_active_peers,
-            active_peers: HashSet::new(),
+            current_height,
+            active_peers: HashMap::new(),
             potential_peers: VecDeque::new(),
             control_sender,
             control_receiver,
@@ -37,7 +43,7 @@ impl PeerManager {
         }
     }
 
-    pub fn control_sender(&self) -> mpsc::Sender<PeerControlMessage> {
+    pub fn control_sender(&self) -> mpsc::Sender<KalikoControlMessage> {
         self.control_sender.clone()
     }
 
@@ -47,18 +53,18 @@ impl PeerManager {
                 let msg = self.control_receiver.recv().unwrap();
 
                 match msg {
-                    PeerControlMessage::StartPeerConnectionFromString(p) => {
-                        println!("Trying to connect to {}", p);
+                    KalikoControlMessage::StartPeerConnectionFromString(p) => {
+                        if self.active_peers.len() >= self.max_active_peers {
+                            continue;
+                        }
 
                         let mut addrs = match p.to_socket_addrs() {
                             Ok(result) => result.collect::<Vec<SocketAddr>>(),
                             Err(_) => continue,
                         };
 
-                        println!("All the addresses that it maps to: {:?}", addrs);
-
                         // After resolving the peer address, if any of the resolved addresses are already active peers, just ignore everything.
-                        if addrs.iter().any(|addr| self.active_peers.contains(&socket_addr_to_v6(*addr))) {
+                        if addrs.iter().any(|addr| self.active_peers.contains_key(&socket_addr_to_v6(*addr))) {
                             continue;
                         }
 
@@ -70,16 +76,24 @@ impl PeerManager {
                             }
                         }
                     },
-                    PeerControlMessage::StartPeerConnectionFromSocketAddr(p) => {
-                        if self.active_peers.contains(&socket_addr_to_v6(p)) {
+                    KalikoControlMessage::StartPeerConnectionFromSocketAddr(p) => {
+                        if self.active_peers.contains_key(&socket_addr_to_v6(p)) {
                             continue;
                         }
 
                         self.try_start_connection(p);
                     },
-                    PeerControlMessage::PeerConnectionDestroyed(p) => {
+                    KalikoControlMessage::PeerConnectionDestroyed(p) => {
                         self.active_peers.remove(&socket_addr_to_v6(p));
                     },
+                    KalikoControlMessage::PeerAnnouncedHeight(height) => {
+                        if height <= self.current_height {
+                            continue;
+                        }
+
+                        // Send a message asking for new headers, unless we already sent one.
+                    },
+                    _ => (),
                 }
             }
         });
@@ -89,10 +103,9 @@ impl PeerManager {
         let message_sender = self.message_sender.clone();
         let control_sender = self.control_sender.clone();
 
-        match PeerConnection::connect(addr, message_sender, control_sender) {
+        match PeerConnection::connect(self.network, addr, message_sender, control_sender) {
             Ok(connection) => {
-                println!("Connected!");
-                self.active_peers.insert(socket_addr_to_v6(connection.peer_addr()));
+                self.active_peers.insert(socket_addr_to_v6(connection.peer_addr()), connection.incoming_channel());
                 connection.handle_connection();
                 true
             },

@@ -1,21 +1,26 @@
+use ::KalikoControlMessage;
 use bitcoin;
 use network::{Command, Message, NetworkError};
 use network::cmpct::SendCmpctPayload;
 use network::version::VersionPayload;
-use peer::PeerControlMessage;
 use rand;
 use rand::Rng;
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
 pub struct PeerConnection {
+    network: bitcoin::Network,
     stream: TcpStream,
     message_sender: Sender<Message>,
-    control_sender: Sender<PeerControlMessage>,
+    control_sender: Sender<KalikoControlMessage>,
     protocol_version: i32,
     fee_filter: u64,
+    peer_starting_height: i32,
+    incoming_message_sender: Sender<Message>,
+    incoming_message_receiver: Receiver<Message>,
 }
 
 impl PartialEq for PeerConnection {
@@ -33,43 +38,64 @@ impl Hash for PeerConnection {
 }
 
 impl PeerConnection {
-    pub fn new(stream: TcpStream, message_sender: Sender<Message>, control_sender: Sender<PeerControlMessage>) -> PeerConnection {
+    pub fn new(network: bitcoin::Network, stream: TcpStream, message_sender: Sender<Message>, control_sender: Sender<KalikoControlMessage>) -> PeerConnection {
+        let (incoming_message_sender, incoming_message_receiver) = mpsc::channel();
+
         PeerConnection {
+            network,
             stream,
             message_sender,
             control_sender,
             protocol_version: 0,
             fee_filter: 0,
+            peer_starting_height: 0,
+            incoming_message_sender,
+            incoming_message_receiver,
         }
     }
 
-    pub fn connect<A: ToSocketAddrs>(peer: A, message_sender: Sender<Message>, control_sender: Sender<PeerControlMessage>) -> Result<PeerConnection, ()> {
+    pub fn connect<A: ToSocketAddrs>(network: bitcoin::Network, peer: A, message_sender: Sender<Message>, control_sender: Sender<KalikoControlMessage>) -> Result<PeerConnection, ()> {
         if let Ok(connection) = TcpStream::connect(peer) {
-            Ok(PeerConnection::new(connection, message_sender, control_sender))
+            Ok(PeerConnection::new(network, connection, message_sender, control_sender))
         } else {
             Err(())
         }
+    }
+
+    pub fn incoming_channel(&self) -> Sender<Message> {
+        self.incoming_message_sender.clone()
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
         self.stream.peer_addr().unwrap()
     }
 
-    fn version_handshake(&mut self) {
+    fn get_checked_message(&mut self) -> Result<Message, NetworkError> {
+        let msg = Message::deserialize(&mut self.stream)?;
+        if msg.network != self.network {
+            // TODO: shutdown this connection or do something else.
+            return Err(NetworkError::WrongNetwork)
+        }
+
+        Ok(msg)
+    }
+
+    fn version_handshake(&mut self) -> bool {
         let version = VersionPayload::new(rand::thread_rng().next_u64());
         let cmd = Command::Version(version);
         let msg = Message::new(bitcoin::Network::Testnet3, cmd);
         msg.serialize(&mut self.stream).unwrap();
 
-        let result_msg = Message::deserialize(&mut self.stream).unwrap();
+        let result_msg = self.get_checked_message().unwrap();
         match result_msg.command {
             Command::Version(p) => {
                 self.protocol_version = p.version();
+                self.peer_starting_height = p.start_height();
             },
             _ => panic!("Expected version command"),
         }
 
-        let result_msg = Message::deserialize(&mut self.stream).unwrap();
+        let result_msg = self.get_checked_message().unwrap();
         match result_msg.command {
             Command::Verack => {},
             _ => panic!("Expected verack command"),
@@ -78,6 +104,14 @@ impl PeerConnection {
         // Send our verack as well.
         let msg = Message::new(bitcoin::Network::Testnet3, Command::Verack);
         msg.serialize(&mut self.stream).unwrap();
+
+        // TODO: remove this and instead make it support other versions.
+        if self.protocol_version != 70015 {
+            println!("Because our peer's version is not 70015, we're ending the connection with them");
+            return false;
+        }
+
+        true
     }
 
     // To be used for sending certain meta commands to parameterize the communication between two peers only.
@@ -101,16 +135,12 @@ impl PeerConnection {
 
     pub fn handle_connection(mut self) {
         thread::spawn(move || {
-            self.version_handshake();
-            println!("Version handshake complete! Remote's version is {}", self.protocol_version);
-
-            // TODO: remove this and instead make it support other versions.
-            if self.protocol_version != 70015 {
-                println!("Because our peer's version is not 70015, we're ending the connection with them");
+            if !self.version_handshake() {
                 return;
             }
 
-            // TODO: match on connection closed errors and send a PeerConnectionDestroyed message.
+            println!("Version handshake complete! Remote's version is {}", self.protocol_version);
+            self.control_sender.send(KalikoControlMessage::PeerAnnouncedHeight(self.peer_starting_height)).unwrap();
 
             // self.send_parameter_messages();
             // println!("Finished sending all parameter messages!");
@@ -124,19 +154,24 @@ impl PeerConnection {
             // msg.serialize(&mut self.stream).unwrap();
             // println!("Sent getblocks command");
 
+            // TODO: match on connection closed errors and send a PeerConnectionDestroyed message.
             loop {
-                let msg = Message::deserialize(&mut self.stream);
-                if let Err(NetworkError::InvalidCommand(name)) = msg {
-                    println!("Received invalid command: {}", name);
-                    continue;
-                }
-
-                if let Err(NetworkError::PeerClosedConnection) = msg {
-                    println!("Peer has closed connection to us, breaking out of loop");
-                    break;
-                }
-
-                let msg = msg.unwrap();
+                let msg = match self.get_checked_message() {
+                    Err(NetworkError::InvalidCommand(name)) => {
+                        println!("Received invalid command: {}", name);
+                        continue;
+                    },
+                    Err(NetworkError::PeerClosedConnection) => {
+                        println!("Peer has closed connection to us, breaking out of loop");
+                        break;
+                    },
+                    Err(p) => {
+                        println!("Got the following error: {:?}", p);
+                        panic!("Got unexpected error");
+                    }
+                    Ok(msg) => msg,
+                };
+                
                 println!("Received command: {} with length {}", msg.command.name(), msg.command.length());
 
                 // If it's something we can reply without sending to the receiver, do it here.

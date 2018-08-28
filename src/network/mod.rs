@@ -17,13 +17,14 @@ pub use self::message::Message;
 
 #[derive(Debug)]
 pub enum NetworkError {
-    NotEnoughData,
-    MalformedUTF8String,
-    UnknownNetworkIdentifier,
-    InvalidCommand(String),
     InvalidChecksum,
+    InvalidCommand(String),
     InvalidValue,
+    MalformedUTF8String,
+    NotEnoughData,
     PeerClosedConnection,
+    UnknownNetworkIdentifier,
+    WrongNetwork,
 }
 
 // TODO: work on this.

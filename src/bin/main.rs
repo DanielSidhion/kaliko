@@ -3,9 +3,11 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate toml;
 
+use kaliko::KalikoControlMessage;
+use kaliko::bitcoin;
 use kaliko::network::{Command, Message};
 use kaliko::peer;
-use kaliko::peer::{PeerControlMessage, PeerConnection};
+use kaliko::peer::PeerConnection;
 use kaliko::storage::BlockHeaderStorage;
 use std::fmt::Display;
 use std::fs::File;
@@ -30,44 +32,60 @@ struct Config {
     max_active_peers: usize,
 }
 
-fn main() {
-    let mut config_file = File::open("kaliko.toml").unwrap();
-    let mut contents = String::new();
-    config_file.read_to_string(&mut contents).unwrap();
+pub struct Kaliko {
+    config: Config,
+    main_control_sender: mpsc::Sender<KalikoControlMessage>,
+    main_control_receiver: mpsc::Receiver<KalikoControlMessage>,
+    storage: BlockHeaderStorage,
+    storage_channel: mpsc::Sender<KalikoControlMessage>,
+    message_sender: mpsc::Sender<Message>,
+    message_receiver: mpsc::Receiver<Message>,
+    peer_manager_channel: mpsc::Sender<KalikoControlMessage>,
+}
 
-    let config: Config = toml::from_str(&contents).unwrap();
-    println!("storage_location = {}", config.storage_location);
+impl Kaliko {
+    pub fn new() -> Kaliko {
+        let mut config_file = File::open("kaliko.toml").unwrap();
+        let mut contents = String::new();
+        config_file.read_to_string(&mut contents).unwrap();
 
-    let mut storage = BlockHeaderStorage::new(&config.storage_location);
+        let config: Config = toml::from_str(&contents).unwrap();
 
-    let mut initial_peers = peer::read_peer_list(&config.peer_seed_list);
-    let (msg_tx, msg_rx) = mpsc::channel();
-    let peer_manager = peer::PeerManager::new(msg_tx.clone(), config.max_active_peers);
-    let peer_manager_channel = peer_manager.control_sender();
-    peer_manager.start();
+        let (main_control_sender, main_control_receiver) = mpsc::channel();
+        let mut storage = BlockHeaderStorage::new(&config.storage_location, main_control_sender.clone());
+        let storage_channel = storage.incoming_sender();
 
-    while let Some(addr) = initial_peers.pop() {
-        println!("Sending message to connect to {}", addr);
-        peer_manager_channel.send(PeerControlMessage::StartPeerConnectionFromString(addr)).unwrap();
+        let (message_sender, message_receiver) = mpsc::channel();
+        let peer_manager = peer::PeerManager::new(bitcoin::Network::Testnet3, message_sender.clone(), config.max_active_peers, storage.num_headers() as i32);
+        let peer_manager_channel = peer_manager.control_sender();
+        peer_manager.start();
+
+        Kaliko {
+            config,
+            main_control_sender,
+            main_control_receiver,
+            storage,
+            storage_channel,
+            message_sender,
+            message_receiver,
+            peer_manager_channel,
+        }
     }
 
-    loop {
-        println!("Checking for messages");
-        let msg = msg_rx.recv().unwrap();
-        println!("Got message back: {:?}", msg.command);
-
+    pub fn process_message(&self, msg: Message) {
         match msg.command {
-            Command::Addr(ref p) => {
+            Command::Addr(p) => {
                 // We only take `max_extra_peers` addresses that we aren't currently connected to.
                 for peer in p.addr_list.iter() {
-                    peer_manager_channel.send(PeerControlMessage::StartPeerConnectionFromSocketAddr(peer.socket_addr())).unwrap();
+                    self.peer_manager_channel.send(KalikoControlMessage::StartPeerConnectionFromSocketAddr(peer.socket_addr())).unwrap();
                 }
             },
-            Command::Headers(ref p) => {
+            Command::Headers(p) => {
                 // Confirming that the blocks are forming a chain.
                 // TODO: Also confirm that their hash is below target.
+                // TODO: move this inside storage.
                 let mut headers_in_chain = true;
-                let mut prev_hash = storage.latest_header.hash();
+                let mut prev_hash = self.storage.latest_header.hash();
 
                 for header in &p.headers {
                     if prev_hash != &header.prev_block {
@@ -82,10 +100,43 @@ fn main() {
 
                 if headers_in_chain {
                     println!("All headers in chain. Writing them to storage!");
-                    storage.write_headers(&p.headers).unwrap();
+                    self.storage_channel.send(KalikoControlMessage::NewHeadersAvailable(p.headers)).unwrap();
                 }
             },
             _ => (),
+        }
+    }
+
+    pub fn process_control_message(&self, msg: KalikoControlMessage) {
+        match msg {
+            KalikoControlMessage::RequestHeaders(latest_hash) => {
+                // TODO: find a way to just route the message?
+                self.peer_manager_channel.send(KalikoControlMessage::RequestHeaders(latest_hash)).unwrap();
+            },
+            _ => (),
+        }
+    }
+}
+
+fn main() {
+    let kaliko = Kaliko::new();
+
+    let mut initial_peers = peer::read_peer_list(&kaliko.config.peer_seed_list);
+    while let Some(addr) = initial_peers.pop() {
+        println!("Sending message to connect to {}", addr);
+        kaliko.peer_manager_channel.send(KalikoControlMessage::StartPeerConnectionFromString(addr)).unwrap();
+    }
+
+    loop {
+        println!("Checking for messages");
+        if let Ok(msg) = kaliko.message_receiver.try_recv() {
+            println!("Got message back: {:?}", msg.command);
+            kaliko.process_message(msg);
+        }
+
+        if let Ok(msg) = kaliko.main_control_receiver.try_recv() {
+            println!("Got control message: {:?}", msg);
+            kaliko.process_control_message(msg);
         }
     }
 }

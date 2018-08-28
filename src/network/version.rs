@@ -23,6 +23,10 @@ impl VersionPayload {
     pub fn version(&self) -> i32 {
         self.version
     }
+
+    pub fn start_height(&self) -> i32 {
+        self.start_height
+    }
     
     pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
         writer.write_i32::<LittleEndian>(self.version)?;
