@@ -1,26 +1,28 @@
 use ::KalikoControlMessage;
 use bitcoin;
+use byteorder::{ByteOrder, LittleEndian};
 use network::{Command, Message, NetworkError};
 use network::cmpct::SendCmpctPayload;
 use network::version::VersionPayload;
 use rand;
 use rand::Rng;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::{thread, time};
 
 pub struct PeerConnection {
     network: bitcoin::Network,
     stream: TcpStream,
-    message_sender: Sender<Message>,
-    control_sender: Sender<KalikoControlMessage>,
     protocol_version: i32,
     fee_filter: u64,
     peer_starting_height: i32,
-    incoming_message_sender: Sender<Message>,
-    incoming_message_receiver: Receiver<Message>,
+    message_buffer: Vec<u8>,
+    outgoing_control_sender: Sender<KalikoControlMessage>,
+    incoming_message_sender: Sender<KalikoControlMessage>,
+    incoming_message_receiver: Receiver<KalikoControlMessage>,
 }
 
 impl PartialEq for PeerConnection {
@@ -38,31 +40,33 @@ impl Hash for PeerConnection {
 }
 
 impl PeerConnection {
-    pub fn new(network: bitcoin::Network, stream: TcpStream, message_sender: Sender<Message>, control_sender: Sender<KalikoControlMessage>) -> PeerConnection {
+    pub fn new(network: bitcoin::Network, stream: TcpStream, outgoing_control_sender: Sender<KalikoControlMessage>) -> PeerConnection {
         let (incoming_message_sender, incoming_message_receiver) = mpsc::channel();
 
         PeerConnection {
             network,
             stream,
-            message_sender,
-            control_sender,
             protocol_version: 0,
             fee_filter: 0,
             peer_starting_height: 0,
+            // TODO: possibly make this size configurable.
+            message_buffer: Vec::with_capacity(4096),
+            outgoing_control_sender,
             incoming_message_sender,
             incoming_message_receiver,
         }
     }
 
-    pub fn connect<A: ToSocketAddrs>(network: bitcoin::Network, peer: A, message_sender: Sender<Message>, control_sender: Sender<KalikoControlMessage>) -> Result<PeerConnection, ()> {
+    pub fn connect<A: ToSocketAddrs>(network: bitcoin::Network, peer: A, outgoing_control_sender: Sender<KalikoControlMessage>) -> Result<PeerConnection, ()> {
         if let Ok(connection) = TcpStream::connect(peer) {
-            Ok(PeerConnection::new(network, connection, message_sender, control_sender))
+            println!("Connection established");
+            Ok(PeerConnection::new(network, connection, outgoing_control_sender))
         } else {
             Err(())
         }
     }
 
-    pub fn incoming_channel(&self) -> Sender<Message> {
+    pub fn incoming_channel(&self) -> Sender<KalikoControlMessage> {
         self.incoming_message_sender.clone()
     }
 
@@ -71,7 +75,24 @@ impl PeerConnection {
     }
 
     fn get_checked_message(&mut self) -> Result<Message, NetworkError> {
-        let msg = Message::deserialize(&mut self.stream)?;
+        // TODO: don't ignore error here.
+        self.stream.read_to_end(&mut self.message_buffer);
+
+        if self.message_buffer.len() < 24 {
+            // We don't even have the message header received.
+            return Err(NetworkError::NotEnoughData);
+        }
+
+        // Check if we have a complete message in the buffer.
+        let message_length = 24 + LittleEndian::read_u32(&self.message_buffer[16..20]) as usize;
+
+        if self.message_buffer.len() < message_length {
+            // We haven't yet received the full payload.
+            return Err(NetworkError::NotEnoughData);
+        }
+
+        let full_message_bytes = self.message_buffer.drain(0..message_length).collect::<Vec<u8>>();
+        let msg = Message::deserialize(&mut &full_message_bytes[..]).unwrap();
         if msg.network != self.network {
             // TODO: shutdown this connection or do something else.
             return Err(NetworkError::WrongNetwork)
@@ -86,7 +107,8 @@ impl PeerConnection {
         let msg = Message::new(bitcoin::Network::Testnet3, cmd);
         msg.serialize(&mut self.stream).unwrap();
 
-        let result_msg = self.get_checked_message().unwrap();
+        // let result_msg = self.get_checked_message().unwrap();
+        let result_msg = Message::deserialize(&mut self.stream).unwrap();
         match result_msg.command {
             Command::Version(p) => {
                 self.protocol_version = p.version();
@@ -95,7 +117,8 @@ impl PeerConnection {
             _ => panic!("Expected version command"),
         }
 
-        let result_msg = self.get_checked_message().unwrap();
+        // let result_msg = self.get_checked_message().unwrap();
+        let result_msg = Message::deserialize(&mut self.stream).unwrap();
         match result_msg.command {
             Command::Verack => {},
             _ => panic!("Expected verack command"),
@@ -133,6 +156,44 @@ impl PeerConnection {
         msg.serialize(&mut self.stream).unwrap();
     }
 
+    fn handle_network_message(&mut self, msg: Message) {
+        println!("Received command: {} with length {}", msg.command.name(), msg.command.length());
+
+        // If it's something we can reply without sending to the receiver, do it here.
+        match msg.command {
+            Command::Ping(nonce) => {
+                println!("Got ping: {}", nonce);
+                let pong = Message::new(bitcoin::Network::Testnet3, Command::Pong(nonce));
+                pong.serialize(&mut self.stream).unwrap();
+                return;
+            },
+            Command::Pong(nonce) => {
+                println!("Got pong: {}", nonce);
+                return;
+            },
+            Command::Feefilter(fee_filter) => {
+                self.fee_filter = fee_filter;
+                return;
+            },
+            Command::SendCmpct(payload) => {
+                // TODO: set cmpct parameters here.
+                println!("Got cmpct: {:#?}", payload);
+                return;
+            },
+            Command::SendHeaders => {
+                // TODO: Set headers parameters here.
+                return;
+            },
+            _ => (),
+        }
+
+        self.outgoing_control_sender.send(KalikoControlMessage::NetworkMessage(msg)).unwrap();
+    }
+
+    fn handle_control_message(&mut self, msg: KalikoControlMessage) {
+
+    }
+
     pub fn handle_connection(mut self) {
         thread::spawn(move || {
             if !self.version_handshake() {
@@ -140,7 +201,7 @@ impl PeerConnection {
             }
 
             println!("Version handshake complete! Remote's version is {}", self.protocol_version);
-            self.control_sender.send(KalikoControlMessage::PeerAnnouncedHeight(self.peer_starting_height)).unwrap();
+            self.outgoing_control_sender.send(KalikoControlMessage::PeerAnnouncedHeight(self.peer_starting_height)).unwrap();
 
             // self.send_parameter_messages();
             // println!("Finished sending all parameter messages!");
@@ -154,12 +215,15 @@ impl PeerConnection {
             // msg.serialize(&mut self.stream).unwrap();
             // println!("Sent getblocks command");
 
+            // Set the stream as nonblocking since we'll enter a loop to check for messages from it and from another channel.
+            self.stream.set_nonblocking(true).unwrap();
+
             // TODO: match on connection closed errors and send a PeerConnectionDestroyed message.
             loop {
-                let msg = match self.get_checked_message() {
+                match self.get_checked_message() {
+                    Err(NetworkError::NotEnoughData) => (),
                     Err(NetworkError::InvalidCommand(name)) => {
                         println!("Received invalid command: {}", name);
-                        continue;
                     },
                     Err(NetworkError::PeerClosedConnection) => {
                         println!("Peer has closed connection to us, breaking out of loop");
@@ -169,40 +233,17 @@ impl PeerConnection {
                         println!("Got the following error: {:?}", p);
                         panic!("Got unexpected error");
                     }
-                    Ok(msg) => msg,
+                    Ok(msg) => {
+                        self.handle_network_message(msg);
+                    },
                 };
-                
-                println!("Received command: {} with length {}", msg.command.name(), msg.command.length());
 
-                // If it's something we can reply without sending to the receiver, do it here.
-                match msg.command {
-                    Command::Ping(nonce) => {
-                        println!("Got ping: {}", nonce);
-                        let pong = Message::new(bitcoin::Network::Testnet3, Command::Pong(nonce));
-                        pong.serialize(&mut self.stream).unwrap();
-                        continue;
-                    },
-                    Command::Pong(nonce) => {
-                        println!("Got pong: {}", nonce);
-                        continue;
-                    },
-                    Command::Feefilter(fee_filter) => {
-                        self.fee_filter = fee_filter;
-                        continue;
-                    },
-                    Command::SendCmpct(payload) => {
-                        // TODO: set cmpct parameters here.
-                        println!("Got cmpct: {:#?}", payload);
-                        continue;
-                    },
-                    Command::SendHeaders => {
-                        // TODO: Set headers parameters here.
-                        continue;
-                    },
+                match self.incoming_message_receiver.try_recv() {
+                    Ok(msg) => self.handle_control_message(msg),
                     _ => (),
-                }
+                };
 
-                self.message_sender.send(msg).unwrap();
+                thread::sleep(time::Duration::from_millis(10));
             }
         });
     }

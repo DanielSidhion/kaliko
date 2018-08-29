@@ -4,7 +4,7 @@ use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use network::NetworkError;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NetworkAddress {
     time: u32,
     services: u64,

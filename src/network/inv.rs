@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use network::NetworkError;
 use network::varint::VarInt;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum InventoryType {
     Error,
     Msg_Tx,
@@ -38,6 +38,7 @@ impl InventoryType {
     }
 }
 
+#[derive(Clone)]
 pub struct InventoryVector {
     object_type: InventoryType,
     hash: [u8; 32],
@@ -82,7 +83,7 @@ impl ::std::fmt::Debug for InventoryVector {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InvPayload {
     count: VarInt,
     inventory: Vec<InventoryVector>,

@@ -4,7 +4,7 @@ use network::NetworkError;
 use network::networkaddress::NetworkAddress;
 use network::varint::VarInt;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AddrPayload {
     count: VarInt,
     pub addr_list: Vec<NetworkAddress>,

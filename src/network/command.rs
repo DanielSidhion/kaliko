@@ -10,7 +10,7 @@ use network::headers::HeadersPayload;
 use network::inv::InvPayload;
 use network::version::VersionPayload;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Command {
     Version(VersionPayload),
     Verack,

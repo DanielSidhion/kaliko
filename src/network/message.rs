@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use bitcoin::Network;
 use network::{Command, NetworkError, NetworkValue};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Message {
     pub network: Network,
     pub command: Command,

@@ -4,7 +4,7 @@ use network::NetworkError;
 use network::varint::VarInt;
 use std::io::{Read, Write};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GetBlocksOrHeadersPayload {
     version: u32,
     hash_count: VarInt,

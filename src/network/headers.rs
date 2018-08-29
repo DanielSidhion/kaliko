@@ -110,7 +110,7 @@ impl ::std::fmt::Debug for BlockHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HeadersPayload {
     pub headers: Vec<BlockHeader>,
     count: VarInt,

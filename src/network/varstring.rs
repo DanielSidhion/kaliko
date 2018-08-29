@@ -4,7 +4,7 @@ use network::NetworkError;
 use network::varint::VarInt;
 
 // TODO: this whole thing doesn't need to exist if we have a NetworkDeserializer trait or something like this and implement it for string.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarString {
     data: String,
 }

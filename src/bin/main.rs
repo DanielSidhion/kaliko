@@ -38,25 +38,25 @@ pub struct Kaliko {
     main_control_receiver: mpsc::Receiver<KalikoControlMessage>,
     storage: BlockHeaderStorage,
     storage_channel: mpsc::Sender<KalikoControlMessage>,
-    message_sender: mpsc::Sender<Message>,
-    message_receiver: mpsc::Receiver<Message>,
     peer_manager_channel: mpsc::Sender<KalikoControlMessage>,
 }
 
 impl Kaliko {
     pub fn new() -> Kaliko {
+        // Config file parsing.
         let mut config_file = File::open("kaliko.toml").unwrap();
         let mut contents = String::new();
         config_file.read_to_string(&mut contents).unwrap();
-
         let config: Config = toml::from_str(&contents).unwrap();
 
         let (main_control_sender, main_control_receiver) = mpsc::channel();
-        let mut storage = BlockHeaderStorage::new(&config.storage_location, main_control_sender.clone());
+
+        // Storage communication set up.
+        let storage = BlockHeaderStorage::new(&config.storage_location, main_control_sender.clone());
         let storage_channel = storage.incoming_sender();
 
-        let (message_sender, message_receiver) = mpsc::channel();
-        let peer_manager = peer::PeerManager::new(bitcoin::Network::Testnet3, message_sender.clone(), config.max_active_peers, storage.num_headers() as i32);
+        // Peer manager communication set up.
+        let peer_manager = peer::PeerManager::new(bitcoin::Network::Testnet3, config.max_active_peers, main_control_sender.clone());
         let peer_manager_channel = peer_manager.control_sender();
         peer_manager.start();
 
@@ -66,8 +66,6 @@ impl Kaliko {
             main_control_receiver,
             storage,
             storage_channel,
-            message_sender,
-            message_receiver,
             peer_manager_channel,
         }
     }
@@ -109,6 +107,9 @@ impl Kaliko {
 
     pub fn process_control_message(&self, msg: KalikoControlMessage) {
         match msg {
+            KalikoControlMessage::NetworkMessage(msg) => {
+                self.process_message(msg);
+            },
             KalikoControlMessage::RequestHeaders(latest_hash) => {
                 // TODO: find a way to just route the message?
                 self.peer_manager_channel.send(KalikoControlMessage::RequestHeaders(latest_hash)).unwrap();
@@ -128,13 +129,8 @@ fn main() {
     }
 
     loop {
-        println!("Checking for messages");
-        if let Ok(msg) = kaliko.message_receiver.try_recv() {
-            println!("Got message back: {:?}", msg.command);
-            kaliko.process_message(msg);
-        }
-
-        if let Ok(msg) = kaliko.main_control_receiver.try_recv() {
+        // if let Ok(msg) = kaliko.main_control_receiver.try_recv() {
+        if let Ok(msg) = kaliko.main_control_receiver.recv() {
             println!("Got control message: {:?}", msg);
             kaliko.process_control_message(msg);
         }

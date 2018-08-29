@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 
 use network::NetworkError;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SendCmpctPayload {
     announce: bool,
     version: u64,

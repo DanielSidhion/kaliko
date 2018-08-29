@@ -18,11 +18,13 @@ pub mod peer;
 pub mod storage;
 pub mod util;
 
+use network::Message;
 use network::headers::BlockHeader;
 use std::net::SocketAddr;
 
 #[derive(Clone, Debug)]
 pub enum KalikoControlMessage {
+    NetworkMessage(Message),
     StartPeerConnectionFromSocketAddr(SocketAddr),
     StartPeerConnectionFromString(String),
     PeerConnectionDestroyed(SocketAddr),

@@ -4,7 +4,7 @@ use network::Message;
 use peer::PeerConnection;
 use std::collections::{HashMap, VecDeque};
 use std::net::{SocketAddr, SocketAddrV6, ToSocketAddrs};
-use std::sync::{mpsc};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
 fn socket_addr_to_v6(socket: SocketAddr) -> SocketAddrV6 {
@@ -19,38 +19,36 @@ fn socket_addr_to_v6(socket: SocketAddr) -> SocketAddrV6 {
 pub struct PeerManager {
     network: bitcoin::Network,
     max_active_peers: usize,
-    current_height: i32,
-    active_peers: HashMap<SocketAddrV6, mpsc::Sender<Message>>,
     potential_peers: VecDeque<SocketAddrV6>,
-    control_sender: mpsc::Sender<KalikoControlMessage>,
-    control_receiver: mpsc::Receiver<KalikoControlMessage>,
-    message_sender: mpsc::Sender<Message>,
+    active_peers: HashMap<SocketAddrV6, Sender<KalikoControlMessage>>,
+    incoming_control_sender: Sender<KalikoControlMessage>,
+    incoming_control_receiver: Receiver<KalikoControlMessage>,
+    outgoing_control_sender: Sender<KalikoControlMessage>,
 }
 
 impl PeerManager {
-    pub fn new(network: bitcoin::Network, message_sender: mpsc::Sender<Message>, max_active_peers: usize, current_height: i32) -> PeerManager {
-        let (control_sender, control_receiver) = mpsc::channel();
+    pub fn new(network: bitcoin::Network, max_active_peers: usize, outgoing_control_sender: Sender<KalikoControlMessage>) -> PeerManager {
+        let (incoming_control_sender, incoming_control_receiver) = channel();
 
         PeerManager {
             network,
             max_active_peers,
-            current_height,
             active_peers: HashMap::new(),
             potential_peers: VecDeque::new(),
-            control_sender,
-            control_receiver,
-            message_sender,
+            incoming_control_sender,
+            incoming_control_receiver,
+            outgoing_control_sender,
         }
     }
 
-    pub fn control_sender(&self) -> mpsc::Sender<KalikoControlMessage> {
-        self.control_sender.clone()
+    pub fn control_sender(&self) -> Sender<KalikoControlMessage> {
+        self.incoming_control_sender.clone()
     }
 
     pub fn start(mut self) {
         thread::spawn(move || {
             loop {
-                let msg = self.control_receiver.recv().unwrap();
+                let msg = self.incoming_control_receiver.recv().unwrap();
 
                 match msg {
                     KalikoControlMessage::StartPeerConnectionFromString(p) => {
@@ -87,11 +85,7 @@ impl PeerManager {
                         self.active_peers.remove(&socket_addr_to_v6(p));
                     },
                     KalikoControlMessage::PeerAnnouncedHeight(height) => {
-                        if height <= self.current_height {
-                            continue;
-                        }
-
-                        // Send a message asking for new headers, unless we already sent one.
+                        self.outgoing_control_sender.send(KalikoControlMessage::PeerAnnouncedHeight(height)).unwrap();
                     },
                     _ => (),
                 }
@@ -100,10 +94,9 @@ impl PeerManager {
     }
 
     fn try_start_connection(&mut self, addr: SocketAddr) -> bool {
-        let message_sender = self.message_sender.clone();
-        let control_sender = self.control_sender.clone();
+        let control_sender = self.incoming_control_sender.clone();
 
-        match PeerConnection::connect(self.network, addr, message_sender, control_sender) {
+        match PeerConnection::connect(self.network, addr, control_sender) {
             Ok(connection) => {
                 self.active_peers.insert(socket_addr_to_v6(connection.peer_addr()), connection.incoming_channel());
                 connection.handle_connection();

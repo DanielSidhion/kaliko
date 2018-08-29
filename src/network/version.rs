@@ -6,7 +6,7 @@ use network::NetworkError;
 use network::networkaddress::NetworkAddress;
 use network::varstring::VarString;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VersionPayload {
     version: i32,
     services: u64,
