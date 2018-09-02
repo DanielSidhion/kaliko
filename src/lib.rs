@@ -2,6 +2,7 @@ extern crate byteorder;
 extern crate hex;
 extern crate hmac;
 #[macro_use] extern crate itertools;
+#[macro_use] extern crate log;
 extern crate rand;
 extern crate ring;
 extern crate ripemd160;
@@ -21,14 +22,16 @@ pub mod util;
 use network::Message;
 use network::headers::BlockHeader;
 use std::net::SocketAddr;
+use std::sync::mpsc::Sender;
 
 #[derive(Clone, Debug)]
 pub enum KalikoControlMessage {
     NetworkMessage(Message),
-    StartPeerConnectionFromSocketAddr(SocketAddr),
-    StartPeerConnectionFromString(String),
+    StartPeerConnection(SocketAddr),
+    PeerUnavailable(SocketAddr),
     PeerConnectionDestroyed(SocketAddr),
-    PeerAnnouncedHeight(i32),
-    RequestHeaders(Vec<u8>),
+    PeerConnectionEstablished(SocketAddr, Sender<KalikoControlMessage>),
+    PeerAnnouncedHeight(SocketAddr, i32),
+    RequestHeaders(SocketAddr, Vec<u8>),
     NewHeadersAvailable(Vec<BlockHeader>),
 }

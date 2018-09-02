@@ -35,6 +35,7 @@ impl BlockHeader {
         Ok(())
     }
 
+    // TODO: likely make this a property in the struct so we don't have to calculate it all the time.
     pub fn hash(&self) -> Vec<u8> {
         let mut header_bytes = vec![];
         self.serialize_no_txn_count(&mut header_bytes).unwrap();

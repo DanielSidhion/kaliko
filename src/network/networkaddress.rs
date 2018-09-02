@@ -1,8 +1,19 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use network::NetworkError;
+
+fn socket_v6_to_v4(socket: SocketAddrV6) -> Option<SocketAddr> {
+    let ip = socket.ip();
+
+    match ip.to_ipv4() {
+        Some(ipv4) => {
+            Some(SocketAddr::V4(SocketAddrV4::new(ipv4, socket.port())))
+        },
+        None => None,
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct NetworkAddress {
@@ -21,7 +32,11 @@ impl NetworkAddress {
     }
 
     pub fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::V6(self.socket_addr)
+        // If we have an IPv4-mapped IPv6 address, convert it back to IPv4.
+        match socket_v6_to_v4(self.socket_addr) {
+            Some(s) => s,
+            None => SocketAddr::V6(self.socket_addr),
+        }
     }
 
     pub fn length() -> usize {
