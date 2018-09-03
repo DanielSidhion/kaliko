@@ -3,20 +3,25 @@ use network::headers::BlockHeader;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::Result;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::Instant;
 
 struct BlockchainNode {
-    header: BlockHeader,
-    children: Vec<BlockchainNode>,
+    data: BlockHeader,
+
+    // These are just indices pointing to an element in a Vec<BlockchainNode>. Allows us to "bypass" Rust's borrow/safety checks for trees with parents.
+    // TODO: figure out a better way to do this.
+    parent: Option<usize>,
+    children: Vec<usize>,
 }
 
 pub struct BlockHeaderStorage {
     storage_file: File,
+    chain: Vec<BlockchainNode>,
+    latest_header: usize,
     header_count: u32,
-    chain: BlockchainNode,
+
     header_request_time: Option<Instant>,
     incoming_control_sender: Sender<KalikoControlMessage>,
     incoming_control_receiver: Receiver<KalikoControlMessage>,
@@ -31,7 +36,8 @@ impl BlockHeaderStorage {
         let latest_header = BlockHeader::new_genesis();
         let header_count = 1;
         let chain = BlockchainNode {
-            header: latest_header,
+            data: latest_header,
+            parent: None,
             children: vec![],
         };
 
@@ -40,7 +46,8 @@ impl BlockHeaderStorage {
         BlockHeaderStorage {
             storage_file,
             header_count,
-            chain,
+            chain: vec![chain],
+            latest_header: 0,
             header_request_time: None,
             incoming_control_sender,
             incoming_control_receiver,
@@ -58,31 +65,46 @@ impl BlockHeaderStorage {
 
             // Find in our chain where is the block referenced by the current header's `prev_block`.
             // We do this by going through the chain using Breadth-First Search (BFS).
-            // To keep using safe Rust, our search captures nodes and their parents in a tuple. This avoids parent references in BlockchainNode, which would likely cause a lot of complexity.
-            // Actually, we might need to have a parent or figure out a way to simplify the code below (which is currently broken).
-            let mut blocks_to_search: VecDeque<(&BlockchainNode, Option<&mut BlockchainNode>)> = VecDeque::new();
-            blocks_to_search.push_back((&mut self.chain, None));
-            while let Some(entry) = blocks_to_search.pop_front() {
-                let (node, parent) = entry;
+            let mut blocks_to_search = VecDeque::new();
+            blocks_to_search.push_back(&self.chain[self.latest_header]);
+            while let Some(node) = blocks_to_search.pop_front() {
 
-                if node.header.hash() == prev_block_hash {
-                    // If the node we found already has a parent, check if we already have the header. If not, we found a split in the blockchain.
-                    if let Some(mut block) = parent {
-                        if let None = block.children.iter().find(|c| c.header.hash() == header.hash()) {
-                            // Found a split in the blockchain. Add the current header as a child of `block`.
-                            block.children.push(BlockchainNode {
-                                header: *header,
+                if node.data.hash() == prev_block_hash {
+                    match node.parent {
+                        // If the node we found already has a parent, check if we already have the header. If not, we found a split in the blockchain. If we already have the header, we just do nothing.
+                        Some(parent) => {
+                            if let None = self.chain[parent].children.iter().find(|c| self.chain[**c].data.hash() == header.hash()) {
+                                // Found a split in the blockchain. Add the current header as a child of `block`.
+                                let new_header_index = self.chain.len();
+                                self.chain.push(BlockchainNode {
+                                    data: *header,
+                                    parent: Some(parent),
+                                    children: vec![],
+                                });
+                                self.chain[parent].children.push(new_header_index);
+                            }
+                        },
+                        // If the node we found doesn't have a parent, that means this is a new header in the chain. Add it to the chain.
+                        None => {
+                            // TODO: turn the following 2 lines into a method.
+                            let new_header_index = self.chain.len();
+                            self.chain.push(BlockchainNode {
+                                data: *header,
+                                parent: None,
                                 children: vec![],
                             });
+
+                            node.parent = Some(new_header_index);
+                            self.latest_header = new_header_index;
                         }
                     }
-                        
 
+                    // Since we found the node we were looking for, we can break out of the BFS loop.
                     break;
                 }
 
-                for child in &node.children {
-                    blocks_to_search.push_back((child, Some(node)));
+                for child in node.children {
+                    blocks_to_search.push_back(&self.chain[child]);
                 }
             }
         }
@@ -100,6 +122,7 @@ impl BlockHeaderStorage {
                         }
 
                         // Send message requesting new headers.
+                        // TODO: actually build the header chain that the protocol needs.
                         self.outgoing_control_sender.send(KalikoControlMessage::RequestHeaders(peer, self.chain.header.hash())).unwrap();
                     },
                     KalikoControlMessage::NewHeadersAvailable(headers) => {
