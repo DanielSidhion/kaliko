@@ -16,6 +16,13 @@ pub struct BlockHeader {
     txn_count: VarInt,
 }
 
+impl PartialEq for BlockHeader {
+    fn eq(&self, other: &BlockHeader) -> bool {
+        self.hash() == other.hash()
+    }
+}
+impl Eq for BlockHeader {}
+
 impl BlockHeader {
     pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), NetworkError> {
         self.serialize_no_txn_count(writer)?;

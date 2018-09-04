@@ -10,6 +10,7 @@ use std::time::Instant;
 pub struct BlockHeaderStorage {
     storage_file: File,
     chain: Vec<BlockHeader>,
+    splits: Vec<Vec<BlockHeader>>,
 
     header_request_time: Option<Instant>,
     incoming_control_sender: Sender<KalikoControlMessage>,
@@ -30,7 +31,8 @@ impl BlockHeaderStorage {
         BlockHeaderStorage {
             storage_file,
             chain,
-            
+            splits: vec![],
+
             header_request_time: None,
             incoming_control_sender,
             incoming_control_receiver,
@@ -42,52 +44,46 @@ impl BlockHeaderStorage {
         self.incoming_control_sender.clone()
     }
 
-    fn build_headers(&mut self, headers: &Vec<BlockHeader>) {
-        for header in headers {
-            let prev_block_hash = header.prev_block;
+    fn build_headers(&mut self, mut headers: Vec<BlockHeader>) {
+        // TODO: assume and validate that the headers are in a chain.
+        // TODO: consider the case where we already have a split in the chain.
 
-            // Find in our chain where is the block referenced by the current header's `prev_block`.
-            // We do this by going through the chain using Breadth-First Search (BFS).
-            let mut blocks_to_search = VecDeque::new();
-            blocks_to_search.push_back(self.latest_header);
-            while let Some(node_index) = blocks_to_search.pop_front() {
-                if self.chain[node_index].data.hash() == prev_block_hash {
-                    match self.chain[node_index].parent {
-                        // If the node we found already has a parent, check if we already have the header. If not, we found a split in the blockchain. If we already have the header, we just do nothing.
-                        Some(parent) => {
-                            if let None = self.chain[parent].children.iter().find(|c| self.chain[**c].data.hash() == header.hash()) {
-                                // Found a split in the blockchain. Add the current header as a child of `block`.
-                                let new_header_index = self.chain.len();
-                                self.chain.push(BlockchainNode {
-                                    data: *header,
-                                    parent: Some(parent),
-                                    children: vec![],
-                                });
-                                self.chain[parent].children.push(new_header_index);
-                            }
-                        },
-                        // If the node we found doesn't have a parent, that means this is a new header in the chain. Add it to the chain.
-                        None => {
-                            // TODO: turn the following 2 lines into a method.
-                            let new_header_index = self.chain.len();
-                            self.chain.push(BlockchainNode {
-                                data: *header,
-                                parent: None,
-                                children: vec![],
-                            });
+        // Find in our chain where is the block referenced by the current header's `prev_block`.
+        let common_base_height = {
+            let first_header = &headers[0];
+            let prev_block_hash = first_header.prev_block;
 
-                            self.chain[node_index].parent = Some(new_header_index);
-                            self.latest_header = new_header_index;
-                        }
-                    }
+            let prev_header = self.chain.iter().rev().enumerate().find(|(_, h)| h.hash() == prev_block_hash);
+            if let None = prev_header {
+                // If the block is never found, we just ignore the current headers.
+                return;
+            }
 
-                    // Since we found the node we were looking for, we can break out of the BFS loop.
-                    break;
-                }
+            prev_header.unwrap().0
+        };
 
-                for child in &self.chain[node_index].children {
-                    blocks_to_search.push_back(*child);
-                }
+        // If the first header builds upon the chain that we have, we can just accept those headers. However, if they are a split in the chain, we need to switch to that split if the received headers form a bigger chain. Otherwise, we need to track the split and only switch when we find the biggest split.
+        if common_base_height == 0 {
+            // Just add the current header to the chain.
+            self.chain.append(&mut headers);
+        } else {
+            if headers.len() < common_base_height {
+                // We still have the bigger chain.
+                return;
+            }
+
+            let common_chain_size = self.chain.len() - common_base_height;
+
+            if headers.len() > common_base_height {
+                // Remove the smaller branch, and start adding the headers from the bigger chain.
+                self.chain.truncate(common_chain_size);
+                self.chain.append(&mut headers);
+            } else {
+                // Keep the split and start tracking it.
+                let first_split = self.chain.split_off(common_chain_size);
+                self.splits.push(first_split);
+                self.splits.push(headers);
+                return;
             }
         }
     }
@@ -99,16 +95,16 @@ impl BlockHeaderStorage {
 
                 match msg {
                     KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
-                        if (height as u32) <= self.header_count {
+                        if (height as usize) <= self.chain.len() {
                             continue;
                         }
 
                         // Send message requesting new headers.
                         // TODO: actually build the header chain that the protocol needs.
-                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeaders(peer, self.chain[0].data.hash())).unwrap();
+                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeaders(peer, self.chain[0].hash())).unwrap();
                     },
                     KalikoControlMessage::NewHeadersAvailable(headers) => {
-                        self.build_headers(&headers);
+                        self.build_headers(headers);
                     },
                     _ => continue,
                 }
