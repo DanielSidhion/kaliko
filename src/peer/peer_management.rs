@@ -54,6 +54,9 @@ impl PeerManager {
                     }
                 }
             },
+            KalikoControlMessage::NetworkMessage(Message {command: Command::Headers(p), ..}) => {
+                self.outgoing_control_sender.send(KalikoControlMessage::NewHeadersAvailable(p.headers)).unwrap();
+            },
             KalikoControlMessage::StartPeerConnection(peer) => {
                 if self.active_peers.contains_key(&peer) || self.connecting_peers.contains(&peer){
                     return;
@@ -98,6 +101,14 @@ impl PeerManager {
             },
             KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
                 self.outgoing_control_sender.send(KalikoControlMessage::PeerAnnouncedHeight(peer, height)).unwrap();
+            },
+            KalikoControlMessage::RequestHeadersFromPeer(peer, locator) => {
+                match self.active_peers.get(&peer) {
+                    None => (),
+                    Some(chan) => {
+                        chan.send(KalikoControlMessage::RequestHeaders(locator)).unwrap();
+                    },
+                }
             },
             _ => (),
         }

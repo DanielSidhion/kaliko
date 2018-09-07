@@ -56,6 +56,7 @@ impl BlockHeaderStorage {
             let prev_header = self.chain.iter().rev().enumerate().find(|(_, h)| h.hash() == prev_block_hash);
             if let None = prev_header {
                 // If the block is never found, we just ignore the current headers.
+                // TODO: instead of ignoring the current headers, send a getheaders command to the peer who sent us these headers - we may be on the wrong branch.
                 return;
             }
 
@@ -93,6 +94,7 @@ impl BlockHeaderStorage {
             loop {
                 let msg = self.incoming_control_receiver.recv().unwrap();
 
+                debug!("Got control message: {:?}", msg);
                 match msg {
                     KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
                         if (height as usize) <= self.chain.len() {
@@ -101,10 +103,12 @@ impl BlockHeaderStorage {
 
                         // Send message requesting new headers.
                         // TODO: actually build the header chain that the protocol needs.
-                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeaders(peer, self.chain[0].hash())).unwrap();
+                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeadersFromPeer(peer, self.chain[0].hash())).unwrap();
                     },
                     KalikoControlMessage::NewHeadersAvailable(headers) => {
+                        debug!("Building headers...");
                         self.build_headers(headers);
+                        debug!("New chain: {:?}", self.chain);
                     },
                     _ => continue,
                 }

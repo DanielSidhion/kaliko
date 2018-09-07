@@ -2,6 +2,7 @@ use ::KalikoControlMessage;
 use bitcoin;
 use byteorder::{ByteOrder, LittleEndian};
 use network::{Command, Message, NetworkError};
+use network::blocks::GetBlocksOrHeadersPayload;
 use network::cmpct::SendCmpctPayload;
 use network::version::VersionPayload;
 use rand;
@@ -161,6 +162,7 @@ impl PeerConnection {
 
     fn handle_network_message(&mut self, msg: Message) {
         debug!("[{}] Received command: {} with length {}", self.peer_addr(), msg.command.name(), msg.command.length());
+        // TODO: validate any message received. If it's not valid, either ignore or close connection.
 
         // If it's something we can reply without sending to the receiver, do it here.
         match msg.command {
@@ -191,7 +193,15 @@ impl PeerConnection {
     }
 
     fn handle_control_message(&mut self, msg: KalikoControlMessage) {
+        debug!("[{}] Received control command: {:?}", self.peer_addr(), msg);
 
+        match msg {
+            KalikoControlMessage::RequestHeaders(locator) => {
+                let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new()));
+                msg.serialize(&mut self.stream).unwrap();
+            },
+            _ => (),
+        }
     }
 
     pub fn handle_connection(&mut self) {

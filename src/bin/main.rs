@@ -114,9 +114,15 @@ impl Kaliko {
             KalikoControlMessage::NetworkMessage(msg) => {
                 self.process_message(msg);
             },
-            KalikoControlMessage::RequestHeaders(peer, latest_hash) => {
+            KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
+                self.storage_channel.send(KalikoControlMessage::PeerAnnouncedHeight(peer, height)).unwrap();
+            },
+            KalikoControlMessage::NewHeadersAvailable(headers) => {
+                self.storage_channel.send(KalikoControlMessage::NewHeadersAvailable(headers)).unwrap();
+            },
+            KalikoControlMessage::RequestHeadersFromPeer(peer, latest_hash) => {
                 // TODO: find a way to just route the message?
-                self.peer_manager_channel.send(KalikoControlMessage::RequestHeaders(peer, latest_hash)).unwrap();
+                self.peer_manager_channel.send(KalikoControlMessage::RequestHeadersFromPeer(peer, latest_hash)).unwrap();
             },
             _ => (),
         }

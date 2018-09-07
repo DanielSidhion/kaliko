@@ -32,6 +32,8 @@ pub enum KalikoControlMessage {
     PeerConnectionDestroyed(SocketAddr),
     PeerConnectionEstablished(SocketAddr, Sender<KalikoControlMessage>),
     PeerAnnouncedHeight(SocketAddr, i32),
-    RequestHeaders(SocketAddr, Vec<u8>),
+    // TODO: likely wrap the message to be delivered under another enum/struct.
+    RequestHeadersFromPeer(SocketAddr, Vec<u8>),
+    RequestHeaders(Vec<u8>),
     NewHeadersAvailable(Vec<BlockHeader>),
 }
