@@ -76,49 +76,20 @@ impl Kaliko {
 
     pub fn process_message(&self, msg: Message) {
         match msg.command {
-            Command::Addr(p) => {
-                // We only take `max_extra_peers` addresses that we aren't currently connected to.
-                for peer in p.addr_list.iter() {
-                    self.peer_manager_channel.send(KalikoControlMessage::StartPeerConnection(peer.socket_addr())).unwrap();
-                }
-            },
-            Command::Headers(p) => {
-                // Confirming that the blocks are forming a chain.
-                // TODO: Also confirm that their hash is below target.
-                // TODO: move this inside storage.
-                // let mut headers_in_chain = true;
-                // let mut prev_hash = self.storage.latest_header.hash();
-
-                // for header in &p.headers {
-                //     if prev_hash != &header.prev_block {
-                //         debug!("Message contains header which is not in the chain!\n");
-                //         debug!("Latest hash: {}", byte_slice_as_hex(&prev_hash));
-                //         headers_in_chain = false;
-                //         break;
-                //     }
-
-                //     prev_hash = header.hash();
-                // }
-
-                // if headers_in_chain {
-                //     debug!("All headers in chain. Writing them to storage!");
-                //     self.storage_channel.send(KalikoControlMessage::NewHeadersAvailable(p.headers)).unwrap();
-                // }
-            },
             _ => (),
         }
     }
 
     pub fn process_control_message(&self, msg: KalikoControlMessage) {
         match msg {
-            KalikoControlMessage::NetworkMessage(msg) => {
+            KalikoControlMessage::NetworkMessage(_, msg) => {
                 self.process_message(msg);
             },
             KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
                 self.storage_channel.send(KalikoControlMessage::PeerAnnouncedHeight(peer, height)).unwrap();
             },
-            KalikoControlMessage::NewHeadersAvailable(headers) => {
-                self.storage_channel.send(KalikoControlMessage::NewHeadersAvailable(headers)).unwrap();
+            KalikoControlMessage::NewHeadersAvailable(peer, headers) => {
+                self.storage_channel.send(KalikoControlMessage::NewHeadersAvailable(peer, headers)).unwrap();
             },
             KalikoControlMessage::RequestHeadersFromPeer(peer, latest_hash) => {
                 // TODO: find a way to just route the message?

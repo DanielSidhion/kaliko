@@ -118,6 +118,14 @@ impl ::std::fmt::Debug for BlockHeader {
     }
 }
 
+impl ::std::fmt::Display for BlockHeader {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        let reversed_prev_block = self.prev_block.iter().cloned().rev().collect::<Vec<u8>>();
+        let reversed_curr_hash = self.hash().iter().cloned().rev().collect::<Vec<u8>>();
+        write!(f, "({} -> {})", byte_slice_as_hex(&reversed_prev_block), byte_slice_as_hex(&reversed_curr_hash))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HeadersPayload {
     pub headers: Vec<BlockHeader>,

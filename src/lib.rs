@@ -26,14 +26,14 @@ use std::sync::mpsc::Sender;
 
 #[derive(Clone, Debug)]
 pub enum KalikoControlMessage {
-    NetworkMessage(Message),
+    NetworkMessage(SocketAddr, Message),
     StartPeerConnection(SocketAddr),
     PeerUnavailable(SocketAddr),
     PeerConnectionDestroyed(SocketAddr),
     PeerConnectionEstablished(SocketAddr, Sender<KalikoControlMessage>),
     PeerAnnouncedHeight(SocketAddr, i32),
     // TODO: likely wrap the message to be delivered under another enum/struct.
-    RequestHeadersFromPeer(SocketAddr, Vec<u8>),
-    RequestHeaders(Vec<u8>),
-    NewHeadersAvailable(Vec<BlockHeader>),
+    RequestHeadersFromPeer(SocketAddr, Vec<Vec<u8>>),
+    RequestHeaders(Vec<Vec<u8>>),
+    NewHeadersAvailable(SocketAddr, Vec<BlockHeader>),
 }

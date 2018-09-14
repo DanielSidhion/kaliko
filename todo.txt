@@ -3,3 +3,4 @@
 [] Find a way to get rid of ring (the lib) or to go full ring
 [] Make sure the right unicode NFKD is being used for generating seeds from bip39. Pretty sure the current implementation fails for things that actually change under NFKD.
 [] Switch to using BufReader for TcpStreams
+[] Incrementally connect to peers to download the chain - if we ask headers from multiple peers we'll receive a lot of duplicate data

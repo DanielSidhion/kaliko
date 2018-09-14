@@ -189,7 +189,7 @@ impl PeerConnection {
             _ => (),
         }
 
-        self.outgoing_control_sender.send(KalikoControlMessage::NetworkMessage(msg)).unwrap();
+        self.outgoing_control_sender.send(KalikoControlMessage::NetworkMessage(self.peer_addr(), msg)).unwrap();
     }
 
     fn handle_control_message(&mut self, msg: KalikoControlMessage) {
@@ -197,7 +197,8 @@ impl PeerConnection {
 
         match msg {
             KalikoControlMessage::RequestHeaders(locator) => {
-                let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new()));
+                let msg = Message::new(bitcoin::Network::Testnet3, Command::GetHeaders(GetBlocksOrHeadersPayload::new(locator)));
+                debug!("Getheaders message: {:?}", msg);
                 msg.serialize(&mut self.stream).unwrap();
             },
             _ => (),

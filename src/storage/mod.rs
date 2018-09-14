@@ -20,7 +20,7 @@ pub struct BlockHeaderStorage {
 
 impl BlockHeaderStorage {
     pub fn new(storage_location: &str, outgoing_control_sender: Sender<KalikoControlMessage>) -> BlockHeaderStorage {
-        let mut storage_file = OpenOptions::new().read(true).append(true).create(true).open(storage_location).unwrap();
+        let storage_file = OpenOptions::new().read(true).append(true).create(true).open(storage_location).unwrap();
 
         // TODO: read storage_file and build the blockchain again.
         let latest_header = BlockHeader::new_genesis();
@@ -45,8 +45,37 @@ impl BlockHeaderStorage {
     }
 
     fn build_headers(&mut self, mut headers: Vec<BlockHeader>) {
-        // TODO: assume and validate that the headers are in a chain.
+        // The logic in build_headers assumes that all headers are part of the same chain, so we must ensure that before doing any work.
+        let (chained_headers, _) = headers.iter().fold((true, Vec::<u8>::new()), |acc, header| {
+            match acc.0 {
+                false => (false, vec![]),
+                true => {
+                    match acc.1.len() {
+                        0 => (true, header.hash()),
+                        32 => {
+                            if acc.1 != header.prev_block {
+                                (false, vec![])
+                            } else {
+                                (true, header.hash())
+                            }
+                        },
+                        // TODO: convert this to error?
+                        _ => panic!("Should never have received different length here"),
+                    }
+                }
+            }
+        });
+
+        if !chained_headers {
+            info!("We received headers to build that are not all connected!");
+            // TODO: return error?
+            return;
+        }
+
         // TODO: consider the case where we already have a split in the chain.
+        if self.splits.len() != 0 {
+            
+        }
 
         // Find in our chain where is the block referenced by the current header's `prev_block`.
         let common_base_height = {
@@ -89,6 +118,27 @@ impl BlockHeaderStorage {
         }
     }
 
+    fn block_locator(&self) -> Vec<Vec<u8>> {
+        // TODO: what to do when we have a split?
+        let mut result = vec![];
+
+        result.append(&mut self.chain.iter().rev().take(10).map(|b| b.hash()).collect::<Vec<Vec<u8>>>());
+
+        let mut chain_iter = self.chain.iter().rev().skip(10);
+        let mut step = 1;
+        while let Some(header) = chain_iter.nth(step) {
+            result.push(header.hash());
+            step *= 2;
+        }
+
+        if result.iter().last().unwrap() != &self.chain[0].hash() {
+            // Adding the genesis block to the locator object.
+            result.push(self.chain[0].hash());
+        }
+
+        result
+    }
+
     pub fn start(mut self) {
         thread::spawn(move || {
             loop {
@@ -97,18 +147,24 @@ impl BlockHeaderStorage {
                 debug!("Got control message: {:?}", msg);
                 match msg {
                     KalikoControlMessage::PeerAnnouncedHeight(peer, height) => {
-                        if (height as usize) <= self.chain.len() {
+                        // If we hold a bigger chain, we just don't care about checking that peer's headers.
+                        if (height as usize) < self.chain.len() {
                             continue;
                         }
 
-                        // Send message requesting new headers.
-                        // TODO: actually build the header chain that the protocol needs.
-                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeadersFromPeer(peer, self.chain[0].hash())).unwrap();
+                        // Send message requesting headers so we can compare, and expand or detect splits in the chain.
+                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeadersFromPeer(peer, self.block_locator())).unwrap();
                     },
-                    KalikoControlMessage::NewHeadersAvailable(headers) => {
+                    KalikoControlMessage::NewHeadersAvailable(peer, headers) => {
                         debug!("Building headers...");
                         self.build_headers(headers);
-                        debug!("New chain: {:?}", self.chain);
+                        debug!("New chain:");
+                        for item in self.chain.iter() {
+                            debug!("  {}", item);
+                        }
+
+                        // Send message requesting more headers just in case that peer has more headers for us.
+                        self.outgoing_control_sender.send(KalikoControlMessage::RequestHeadersFromPeer(peer, self.block_locator())).unwrap();
                     },
                     _ => continue,
                 }

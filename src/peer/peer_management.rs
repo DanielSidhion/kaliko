@@ -44,7 +44,7 @@ impl PeerManager {
 
     fn handle_control_message(&mut self, msg: KalikoControlMessage) {
         match msg {
-            KalikoControlMessage::NetworkMessage(Message {command: Command::Addr(p), ..}) => {
+            KalikoControlMessage::NetworkMessage(_, Message {command: Command::Addr(p), ..}) => {
                 // Add all addresses as potential peers to connect to.
                 for addr in p.addr_list {
                     let socket_addr = addr.socket_addr();
@@ -54,8 +54,8 @@ impl PeerManager {
                     }
                 }
             },
-            KalikoControlMessage::NetworkMessage(Message {command: Command::Headers(p), ..}) => {
-                self.outgoing_control_sender.send(KalikoControlMessage::NewHeadersAvailable(p.headers)).unwrap();
+            KalikoControlMessage::NetworkMessage(peer, Message {command: Command::Headers(p), ..}) => {
+                self.outgoing_control_sender.send(KalikoControlMessage::NewHeadersAvailable(peer, p.headers)).unwrap();
             },
             KalikoControlMessage::StartPeerConnection(peer) => {
                 if self.active_peers.contains_key(&peer) || self.connecting_peers.contains(&peer){

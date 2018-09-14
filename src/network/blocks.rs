@@ -55,19 +55,20 @@ impl GetBlocksOrHeadersPayload {
         })
     }
 
-    pub fn new() -> GetBlocksOrHeadersPayload {
-        let genesis_hash = Vec::from_hex("000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943").unwrap().iter().cloned().rev().collect::<Vec<u8>>();
-        let mut genesis_block_hash = [0u8; 32];
-        genesis_block_hash.copy_from_slice(&genesis_hash);
-        let block4 = Vec::from_hex("000000008b5d0af9ffb1741e38b17b193bd12d7683401cecd2fd94f548b6e5dd").unwrap().iter().cloned().rev().collect::<Vec<u8>>();
-        let mut hash_stop = [0u8; 32];
-        hash_stop.copy_from_slice(&block4);
+    pub fn new(block_locator: Vec<Vec<u8>>) -> GetBlocksOrHeadersPayload {
+        let mut block_locator_hashes = vec![];
+
+        for hash in block_locator {
+            let mut hash_array = [0u8; 32];
+            hash_array.copy_from_slice(&hash);
+            block_locator_hashes.push(hash_array);
+        }
 
         GetBlocksOrHeadersPayload {
             version: 70015,
             hash_count: VarInt::new(1),
-            block_locator_hashes: vec![genesis_block_hash],
-            hash_stop,
+            block_locator_hashes,
+            hash_stop: [0u8; 32],
         }
     }
 }
